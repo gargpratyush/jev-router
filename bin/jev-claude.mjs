@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, accessSync, constants } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, accessSync, statSync, constants } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -90,8 +90,20 @@ for (const file of [
  * shell means arguments are passed as an array (no quoting hazard, no DEP0190 warning) and
  * a missing install produces a useful message instead of a shell error. Older npm-based
  * installs are a `.cmd` shim, which Node still refuses to run without a shell.
+ *
+ * `JEV_CLAUDE_BIN` names the real binary directly and wins over the PATH walk. A wrapper
+ * script named `claude` can then sit earlier on PATH and exec jev-claude without the walk
+ * finding the wrapper again and recursing.
  */
 function resolveClaude() {
+  const override = process.env.JEV_CLAUDE_BIN;
+  if (override) {
+    try {
+      if (statSync(override).isFile()) return { file: override, shell: /\.(cmd|bat)$/i.test(override) };
+    } catch {
+      // Missing or unreadable; fall through to the PATH walk.
+    }
+  }
   const win = process.platform === "win32";
   const exts = win ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";") : [""];
   for (const dir of (process.env.PATH ?? "").split(win ? ";" : ":")) {
