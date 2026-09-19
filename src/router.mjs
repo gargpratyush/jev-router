@@ -3,6 +3,7 @@ import {
   COMPLEXITY_MAX_SCORE,
   CONTEXT_WINDOW_TOKENS,
   QUESTIONS,
+  providerName,
   questionForModels,
   THRESHOLDS,
 } from "./config.mjs";
@@ -21,6 +22,37 @@ function getClient() {
     logLevel: "warn", // never "debug": request bodies contain the user's prompt
   });
   return client;
+}
+
+const CLOUDFLARE_RUN_URL = "https://api.cloudflare.com/client/v4/accounts";
+const CLOUDFLARE_JEV_MODEL = "typesafe/jev";
+
+/**
+ * Cloudflare Workers AI hosts the same Jev model behind its own REST envelope: the request
+ * wraps state and questions in `input`, and the response wraps answers in `result`. No retry
+ * here — the deadline below bounds the whole call, and a failed route keeps the current model.
+ */
+async function runCloudflare(request, signal) {
+  const res = await fetch(
+    `${CLOUDFLARE_RUN_URL}/${process.env.CLOUDFLARE_ACCOUNT_ID}/ai/run`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: CLOUDFLARE_JEV_MODEL,
+        input: { state: request.state, questions: request.questions },
+      }),
+      signal,
+    },
+  );
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(`HTTP ${res.status}: ${JSON.stringify(json.errors ?? json)}`);
+  }
+  return json.result;
 }
 
 /**
@@ -43,7 +75,10 @@ export async function askJev({ prompt, current, contextTokens, models }) {
     questions: { ...QUESTIONS, model: questionForModels(models) },
   };
   try {
-    const result = await getClient().systemOne(request, { signal: abort.signal });
+    const result =
+      providerName() === "cloudflare"
+        ? await runCloudflare(request, abort.signal)
+        : await getClient().systemOne(request, { signal: abort.signal });
     const { model: answer, task_complexity, reasoning_required, tool_complexity } = result.answers;
     return {
       ...answer,

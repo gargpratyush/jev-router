@@ -45,6 +45,20 @@ export const tierOf = (model) =>
 export const availableTiers = () =>
   TIER_NAMES.filter((n) => n !== "fable" || process.env.JEV_ALLOW_FABLE === "1");
 
+/**
+ * Which Jev endpoint answers routing questions: the TypeSafe API (`typesafe`) or the same
+ * model hosted on Cloudflare Workers AI (`cloudflare`). Explicit, never auto-detected, so a
+ * half-set Cloudflare token cannot silently switch providers.
+ */
+export const providerName = () =>
+  process.env.JEV_PROVIDER === "cloudflare" ? "cloudflare" : "typesafe";
+
+/** Whether the active provider has the credentials it needs. */
+export const hasCredentials = () =>
+  providerName() === "cloudflare"
+    ? Boolean(process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_ACCOUNT_ID)
+    : Boolean(process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY);
+
 export const THRESHOLDS = {
   /** Below this Jev confidence we refuse to downgrade and cap upgrades at `uncertainCeiling`. */
   minConfidence: 0.3,

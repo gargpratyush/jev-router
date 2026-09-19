@@ -48,6 +48,10 @@ jev-claude
 jev-codex
 ```
 
+Alternatively, route via Cloudflare Workers AI instead of the TypeSafe API: set
+`JEV_PROVIDER=cloudflare`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID` (in place of
+`JEV_API_KEY`) in the same env file.
+
 No Anthropic or OpenAI API key is required when the corresponding CLI is already logged in
 with a subscription. Every CLI argument is forwarded:
 
@@ -153,7 +157,7 @@ available from any repository without separate setup.
 
 Codex's footer shows `jev-router` because it displays the selected picker entry,
 not the model chosen behind that provider. If Jev is unavailable, the commentary names the
-fallback model and explains how to set `JEV_API_KEY`.
+fallback model and explains how to set routing credentials.
 
 ## How it works
 
@@ -202,7 +206,8 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 
 | Variable | Interface | Effect |
 | --- | --- | --- |
-| `JEV_API_KEY` | Both | Enables routing. `TYPESAFE_API_KEY` also works. |
+| `JEV_API_KEY` | Both | Enables routing. `TYPESAFE_API_KEY` also works. Not needed in Cloudflare mode. |
+| `JEV_PROVIDER` | Both | Set to `cloudflare` to route via Cloudflare Workers AI (`typesafe/jev`) instead of the TypeSafe API. Requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. |
 | `JEV_ALLOW_FABLE` | Both | Enables the opt-in long tier. |
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
