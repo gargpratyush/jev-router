@@ -22,8 +22,9 @@ test("the sentinel is not mistaken for a real tier", () => {
   assert.equal(tierOf("jev-router"), null);
 });
 import { tierOf, isAuto } from "../src/config.mjs";
-import { writeDecision, writeStatus, readStatus, pruneStale, STATUS_DIR } from "../src/status.mjs";
-import { mkdirSync, statSync, utimesSync, writeFileSync, existsSync } from "node:fs";
+import { writeDecision, writeStatus, readStatus, pruneStale, ensurePrivateDir, STATUS_DIR } from "../src/status.mjs";
+import { mkdirSync, mkdtempSync, statSync, symlinkSync, utimesSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 test("reads the session id out of Claude Code's metadata", () => {
@@ -46,6 +47,29 @@ test("status files are private to their owner", { skip: process.platform === "wi
   writeStatus(sid, { tier: "opus" });
   assert.equal(statSync(STATUS_DIR).mode & 0o777, 0o700);
   assert.equal(statSync(join(STATUS_DIR, `${sid}.json`)).mode & 0o777, 0o600);
+});
+
+test("the status directory is per-user on POSIX", { skip: process.platform === "win32" }, () => {
+  assert.ok(STATUS_DIR.endsWith(`jev-claude-${process.getuid()}`));
+});
+
+test("a symlinked status directory is refused", { skip: process.platform === "win32" }, () => {
+  const base = mkdtempSync(join(tmpdir(), "jev-router-test-"));
+  const target = join(base, "elsewhere");
+  const link = join(base, "link");
+  mkdirSync(target);
+  symlinkSync(target, link);
+  assert.throws(() => ensurePrivateDir(link), /not a directory owned by the current user/);
+});
+
+test("pruning keeps the launcher's settings file", () => {
+  mkdirSync(STATUS_DIR, { recursive: true });
+  const settings = join(STATUS_DIR, "settings.json");
+  writeFileSync(settings, "{}");
+  const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  utimesSync(settings, old, old);
+  pruneStale();
+  assert.equal(existsSync(settings), true);
 });
 
 test("stale status files are pruned and fresh ones kept", () => {

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, accessSync, constants } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { readFileSync, writeFileSync, accessSync, chmodSync, constants } from "node:fs";
+import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startProxy } from "../src/proxy.mjs";
 import { AUTO_MODEL } from "../src/config.mjs";
 import { readSavedModel, restoreSavedModel } from "../src/settings.mjs";
+import { ensurePrivateDir } from "../src/status.mjs";
 import { LOG_FILE } from "../src/log.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -60,10 +61,12 @@ function statusLineArgs() {
   // Passed as a file rather than inline JSON: on Windows the args go through a shell, and a
   // JSON string containing its own quotes does not survive that.
   const command = `"${process.execPath}" "${join(HERE, "jev-statusline.mjs")}"`;
-  const file = join(tmpdir(), "jev-claude", "settings.json");
+  // Claude Code runs the statusLine command, so this file must live where only we can write.
+  let file;
   try {
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify({ statusLine: { type: "command", command } }));
+    file = join(ensurePrivateDir(), "settings.json");
+    writeFileSync(file, JSON.stringify({ statusLine: { type: "command", command } }), { mode: 0o600 });
+    chmodSync(file, 0o600);
   } catch {
     return [];
   }
