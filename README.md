@@ -40,8 +40,11 @@ On Windows PowerShell:
 Set-Content "$HOME\.jev-router.env" "JEV_API_KEY=..."
 ```
 
-Get a key from [TypeSafe](https://docs.typesafe.ai). Then launch either interface from any
-repository:
+Get a key from [TypeSafe](https://docs.typesafe.ai). No TypeSafe account? `OPENROUTER_API_KEY=...`
+works too. It routes through OpenRouter's decisions endpoint with `~typesafe/jev-latest`, at
+about $0.00004 per routed turn. TypeSafe wins when both keys are set.
+
+Then launch either interface from any repository:
 
 ```bash
 jev-claude
@@ -205,6 +208,8 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | Variable | Interface | Effect |
 | --- | --- | --- |
 | `JEV_API_KEY` | Both | Enables routing. `TYPESAFE_API_KEY` also works. |
+| `OPENROUTER_API_KEY` | Both | Enables routing through OpenRouter when no TypeSafe key is set. |
+| `JEV_OPENROUTER_MODEL` | Both | OpenRouter model id for the decision call; defaults to `~typesafe/jev-latest`. |
 | `JEV_ALLOW_FABLE` | Both | Enables the opt-in long tier. |
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
@@ -252,7 +257,8 @@ injection, and decision display.
 
 ## Limitations
 
-- The user's prompt text is sent to TypeSafe for the routing decision. Nothing else is.
+- The user's prompt text is sent to TypeSafe for the routing decision, or to OpenRouter when
+  that backend is in use. Nothing else is.
 - Jev adds latency only to the first request of a turn; tool-loop continuations add none.
 - Claude Code and Codex request formats are not public contracts. Use `JEV_DUMP` to diagnose
   upstream changes.

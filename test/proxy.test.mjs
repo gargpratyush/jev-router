@@ -260,6 +260,15 @@ test("strips system reminders Claude Code injects into the prompt", () => {
   assert.equal(newTurnPrompt(body), "fix the bug");
 });
 
+test("skips trailing system messages Claude Code appends from hooks", () => {
+  const body = withTools([
+    { role: "user", content: "say ok" },
+    { role: "system", content: "hook context" },
+  ]);
+  assert.equal(newTurnPrompt(body), "say ok");
+  assert.equal(newTurnPrompt(withTools([{ role: "system", content: "x" }])), null);
+});
+
 test("a prompt that is only a system reminder is not a turn", () => {
   const body = withTools([{ role: "user", content: "<system-reminder>noise</system-reminder>" }]);
   assert.equal(newTurnPrompt(body), null);
