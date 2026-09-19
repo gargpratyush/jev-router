@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CODEX_AUTO_MODEL, startCodexProxy } from "./codex-proxy.mjs";
+import { hasCredentials } from "./config.mjs";
 
 const PROVIDER = "jev";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -93,14 +94,16 @@ export async function runCodex() {
   let close = () => {};
   const statusId = `codex-${process.pid}`;
   process.env.JEV_CODEX_STATUS_ID = statusId;
-  if (process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY) {
+  if (hasCredentials()) {
     const proxy = await startCodexProxy({ statusId });
     close = proxy.close;
     args = codexArgs(`http://127.0.0.1:${proxy.port}`, args);
   } else {
     process.stderr.write(
-      "[jev] no JEV_API_KEY found - starting Codex without routing\n" +
-        `[jev] add JEV_API_KEY=... to ${join(homedir(), ".jev-router.env")} and restart jev-codex\n`,
+      "[jev] no routing credentials found - starting Codex without routing\n" +
+        "[jev] set JEV_API_KEY=... (TypeSafe), JEV_PROVIDER=cloudflare with\n" +
+        "[jev] CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, or JEV_PROVIDER=vercel with\n" +
+        `[jev] AI_GATEWAY_API_KEY, in ${join(homedir(), ".jev-router.env")} to enable routing\n`,
     );
   }
 

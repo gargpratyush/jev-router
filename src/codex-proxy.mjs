@@ -144,7 +144,7 @@ export function jevDecisionEvents({ tier, model = codexModelOf(tier), confidence
   const detail = confidence == null ? reason : `${reason}, confidence ${confidence.toFixed(2)}`;
   const id = `jev-${randomUUID()}`;
   const text = reason.startsWith("jev-unavailable")
-    ? `[Jev] unavailable; using ${model}. Add JEV_API_KEY=... to ~/.jev-router.env and restart jev-codex.`
+    ? `[Jev] unavailable; using ${model}. Add routing credentials (JEV_API_KEY, JEV_PROVIDER=cloudflare, or JEV_PROVIDER=vercel) to ~/.jev-router.env and restart jev-codex.`
     : `[Jev] routed this turn to ${model} (${detail}).`;
   const item = {
     type: "message",
