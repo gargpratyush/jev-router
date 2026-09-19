@@ -118,13 +118,13 @@ CLI session under Node.js's operating-system temporary directory:
 | Platform | Default location |
 | --- | --- |
 | Windows | `%TEMP%\jev-claude\<session-id>.json` |
-| macOS | `$TMPDIR/jev-claude/<session-id>.json` (normally under `/var/folders/.../T`) |
-| Ubuntu/Linux | `${TMPDIR:-/tmp}/jev-claude/<session-id>.json` |
+| macOS | `$TMPDIR/jev-claude-<uid>/<session-id>.json` (normally under `/var/folders/.../T`) |
+| Ubuntu/Linux | `${TMPDIR:-/tmp}/jev-claude-<uid>/<session-id>.json` |
 
 Print the exact directory selected on the current machine with:
 
 ```bash
-node -e "console.log(require('node:path').join(require('node:os').tmpdir(), 'jev-claude'))"
+node -e "console.log(require('node:path').join(require('node:os').tmpdir(), process.getuid ? 'jev-claude-' + process.getuid() : 'jev-claude'))"
 ```
 
 Claude filenames use Claude Code's session UUID. Codex filenames use

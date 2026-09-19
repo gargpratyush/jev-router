@@ -61,7 +61,7 @@ flowchart TB
 
   subgraph visibility["Routing visibility — status.mjs + jev-statusline.mjs"]
     direction TB
-    statusFile["Temp file: $TMPDIR/jev-claude/<session>.json"]
+    statusFile["Temp file: $TMPDIR/jev-claude-<uid>/<session>.json"]
     statusLine["Claude Code status-line command\nReads session file and renders:\n⚡ tier + confidence, or ⏸ manual"]
     statusFile --> statusLine
   end
