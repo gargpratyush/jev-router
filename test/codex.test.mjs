@@ -134,7 +134,7 @@ test("surfaces routing as a native commentary event", () => {
     confidence: null,
     reason: "jev-unavailable/no-change",
   });
-  assert.match(unavailable, /Add routing credentials \(JEV_API_KEY, or JEV_PROVIDER=cloudflare\)/);
+  assert.match(unavailable, /Add routing credentials \(JEV_API_KEY, JEV_PROVIDER=cloudflare, or JEV_PROVIDER=vercel\)/);
   assert.match(unavailable, /using gpt-5\.6-terra/);
 });
 

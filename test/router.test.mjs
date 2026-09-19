@@ -31,6 +31,8 @@ test("provider selection is explicit and defaults to typesafe", () => {
   assert.equal(providerName(), "typesafe");
   process.env.JEV_PROVIDER = "cloudflare";
   assert.equal(providerName(), "cloudflare");
+  process.env.JEV_PROVIDER = "vercel";
+  assert.equal(providerName(), "vercel");
   process.env.JEV_PROVIDER = "nonsense";
   assert.equal(providerName(), "typesafe");
   delete process.env.JEV_PROVIDER;
@@ -42,6 +44,7 @@ test("hasCredentials checks the active provider's variables", () => {
   delete process.env.TYPESAFE_API_KEY;
   delete process.env.CLOUDFLARE_API_TOKEN;
   delete process.env.CLOUDFLARE_ACCOUNT_ID;
+  delete process.env.AI_GATEWAY_API_KEY;
   assert.equal(hasCredentials(), false);
   process.env.JEV_API_KEY = "k";
   assert.equal(hasCredentials(), true);
@@ -56,6 +59,13 @@ test("hasCredentials checks the active provider's variables", () => {
   delete process.env.JEV_PROVIDER;
   delete process.env.CLOUDFLARE_API_TOKEN;
   delete process.env.CLOUDFLARE_ACCOUNT_ID;
+
+  process.env.JEV_PROVIDER = "vercel";
+  assert.equal(hasCredentials(), false, "gateway key is required");
+  process.env.AI_GATEWAY_API_KEY = "gk";
+  assert.equal(hasCredentials(), true);
+  delete process.env.JEV_PROVIDER;
+  delete process.env.AI_GATEWAY_API_KEY;
 });
 
 test("cloudflare provider sends the REST envelope and unwraps result", async (t) => {
@@ -157,4 +167,107 @@ test("default provider never touches the Cloudflare endpoint", async (t) => {
   const out = await askJev({ prompt: "x", current: "sonnet", contextTokens: 0, models: MODELS });
   assert.equal(out, null);
   assert.equal(cloudflareCalls, 0);
+});
+
+const vercelResult = {
+  answers: {
+    model: {
+      type: "choice",
+      choice: "claude-opus-5",
+      probabilities: { "claude-opus-5": 0.9 },
+    },
+    task_complexity: { type: "score", score: 3 },
+    reasoning_required: { type: "score", score: 3 },
+    tool_complexity: { type: "score", score: 2 },
+  },
+  usage: { inputTokens: 100, outputTokens: 20 },
+  providerMetadata: { typesafe: { confidence: { model: 0.88 } } },
+};
+
+test("vercel provider sends gateway headers and backfills confidence", async (t) => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response(JSON.stringify(vercelResult), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    delete process.env.JEV_PROVIDER;
+    delete process.env.AI_GATEWAY_API_KEY;
+  });
+  process.env.JEV_PROVIDER = "vercel";
+  process.env.AI_GATEWAY_API_KEY = "gk";
+
+  const out = await askJev({
+    prompt: "fix the bug",
+    current: "sonnet",
+    contextTokens: 100,
+    models: MODELS,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://ai-gateway.vercel.sh/v4/ai/evaluation-model");
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal(calls[0].init.headers.authorization, "Bearer gk");
+  assert.equal(calls[0].init.headers["ai-model-id"], "typesafe-ai/jev");
+  assert.equal(calls[0].init.headers["ai-evaluation-model-specification-version"], "4");
+  assert.equal(calls[0].init.headers["ai-gateway-protocol-version"], "0.0.1");
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.model, undefined, "the model id rides in a header, not the body");
+  assert.equal(body.state.request, "fix the bug");
+  assert.deepEqual(Object.keys(body.questions), [
+    "task_complexity",
+    "reasoning_required",
+    "tool_complexity",
+    "model",
+  ]);
+
+  assert.equal(out.choice, "claude-opus-5");
+  assert.equal(out.confidence, 0.88, "confidence is backfilled from providerMetadata");
+  assert.equal(out.response.answers.model.confidence, 0.88);
+  assert.equal(out.metrics.taskComplexity, 3 / 9);
+  assert.equal(out.request.state.request, "fix the bug");
+});
+
+test("vercel answers without providerMetadata keep confidence undefined", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ ...vercelResult, providerMetadata: undefined }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    delete process.env.JEV_PROVIDER;
+    delete process.env.AI_GATEWAY_API_KEY;
+  });
+  process.env.JEV_PROVIDER = "vercel";
+  process.env.AI_GATEWAY_API_KEY = "gk";
+
+  const out = await askJev({ prompt: "x", current: "sonnet", contextTokens: 0, models: MODELS });
+  assert.equal(out.choice, "claude-opus-5");
+  assert.equal(out.confidence, undefined);
+});
+
+test("vercel failures fail open with null", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    delete process.env.JEV_PROVIDER;
+    delete process.env.AI_GATEWAY_API_KEY;
+  });
+  process.env.JEV_PROVIDER = "vercel";
+  process.env.AI_GATEWAY_API_KEY = "gk";
+
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ error: { message: "Authentication failed", type: "authentication_error" } }),
+      { status: 401, headers: { "content-type": "application/json" } },
+    );
+  const out = await askJev({ prompt: "x", current: "sonnet", contextTokens: 0, models: MODELS });
+  assert.equal(out, null);
 });

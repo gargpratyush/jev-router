@@ -48,9 +48,17 @@ jev-claude
 jev-codex
 ```
 
-Alternatively, route via Cloudflare Workers AI instead of the TypeSafe API: set
-`JEV_PROVIDER=cloudflare`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID` (in place of
-`JEV_API_KEY`) in the same env file.
+Routing decisions come from one of the following Jev providers, selected
+explicitly with `JEV_PROVIDER` (unset defaults to TypeSafe):
+
+| Provider | `JEV_PROVIDER` | Required credentials |
+| --- | --- | --- |
+| [TypeSafe](https://docs.typesafe.ai) | *(unset)* | `JEV_API_KEY` (or `TYPESAFE_API_KEY`) |
+| [Cloudflare Workers AI](https://developers.cloudflare.com/ai/models/typesafe/jev/) | `cloudflare` | `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` |
+| [Vercel AI Gateway](https://vercel.com/ai-gateway/models/jev) | `vercel` | `AI_GATEWAY_API_KEY` |
+
+All credentials go in the same env file (`~/.jev-router.env`, `.env`, or the
+process environment).
 
 No Anthropic or OpenAI API key is required when the corresponding CLI is already logged in
 with a subscription. Every CLI argument is forwarded:
@@ -206,8 +214,8 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 
 | Variable | Interface | Effect |
 | --- | --- | --- |
-| `JEV_API_KEY` | Both | Enables routing. `TYPESAFE_API_KEY` also works. Not needed in Cloudflare mode. |
-| `JEV_PROVIDER` | Both | Set to `cloudflare` to route via Cloudflare Workers AI (`typesafe/jev`) instead of the TypeSafe API. Requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. |
+| `JEV_API_KEY` | Both | Enables routing. `TYPESAFE_API_KEY` also works. Not needed in Cloudflare or Vercel mode. |
+| `JEV_PROVIDER` | Both | Route through a provider other than the TypeSafe API: `cloudflare` (Workers AI `typesafe/jev`, requires `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`) or `vercel` (AI Gateway `typesafe-ai/jev`, requires `AI_GATEWAY_API_KEY`). |
 | `JEV_ALLOW_FABLE` | Both | Enables the opt-in long tier. |
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
@@ -249,13 +257,21 @@ node bin/jev-claude.mjs -p "what is 2+2?"
 node bin/jev-codex.mjs exec "what is 2+2?"
 ```
 
+`test/live-routing.mjs` sends four real prompts through the active provider.
+Set `JEV_PROVIDER=cloudflare` with `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID`, or `JEV_PROVIDER=vercel` with `AI_GATEWAY_API_KEY`
+(or leave `JEV_PROVIDER` unset with `JEV_API_KEY`) in `.env` to choose which
+endpoint it exercises.
+
 The test suite covers shared policy, both request formats, model rewriting, capability
 handling, settings restoration, Codex authentication forwarding, native model-picker
-injection, and decision display.
+injection, decision display, and the Cloudflare and Vercel provider envelopes.
 
 ## Limitations
 
-- The user's prompt text is sent to TypeSafe for the routing decision. Nothing else is.
+- The user's prompt text is sent to the active Jev provider (TypeSafe by
+  default; Cloudflare Workers AI or Vercel AI Gateway with `JEV_PROVIDER`) for
+  the routing decision. Nothing else is.
 - Jev adds latency only to the first request of a turn; tool-loop continuations add none.
 - Claude Code and Codex request formats are not public contracts. Use `JEV_DUMP` to diagnose
   upstream changes.

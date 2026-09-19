@@ -55,6 +55,42 @@ async function runCloudflare(request, signal) {
   return json.result;
 }
 
+const VERCEL_EVAL_URL = "https://ai-gateway.vercel.sh/v4/ai/evaluation-model";
+const VERCEL_JEV_MODEL = "typesafe-ai/jev";
+
+/**
+ * The Vercel AI Gateway fronts the same Jev model behind its evaluation-model endpoint: the
+ * model id rides in a header, and choice/score answers carry no top-level confidence —
+ * TypeSafe's confidence statistic lives in providerMetadata keyed by question id, so it is
+ * copied back onto each answer. No retry here — the deadline below bounds the whole call,
+ * and a failed route keeps the current model.
+ */
+async function runVercel(request, signal) {
+  const res = await fetch(VERCEL_EVAL_URL, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.AI_GATEWAY_API_KEY}`,
+      "content-type": "application/json",
+      "ai-model-id": VERCEL_JEV_MODEL,
+      "ai-evaluation-model-specification-version": "4",
+      "ai-gateway-protocol-version": "0.0.1",
+    },
+    body: JSON.stringify({ state: request.state, questions: request.questions }),
+    signal,
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${JSON.stringify(json.error ?? json)}`);
+  }
+  const confidence = json.providerMetadata?.typesafe?.confidence ?? {};
+  for (const [id, answer] of Object.entries(json.answers ?? {})) {
+    if (answer.confidence === undefined && confidence[id] !== undefined) {
+      answer.confidence = confidence[id];
+    }
+  }
+  return json;
+}
+
 /**
  * Asks Jev which tier fits this prompt. Returns null on any failure, which the policy
  * layer reads as "keep the current model" — routing must never block a prompt.
@@ -75,10 +111,13 @@ export async function askJev({ prompt, current, contextTokens, models }) {
     questions: { ...QUESTIONS, model: questionForModels(models) },
   };
   try {
+    const provider = providerName();
     const result =
-      providerName() === "cloudflare"
+      provider === "cloudflare"
         ? await runCloudflare(request, abort.signal)
-        : await getClient().systemOne(request, { signal: abort.signal });
+        : provider === "vercel"
+          ? await runVercel(request, abort.signal)
+          : await getClient().systemOne(request, { signal: abort.signal });
     const { model: answer, task_complexity, reasoning_required, tool_complexity } = result.answers;
     return {
       ...answer,

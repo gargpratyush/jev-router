@@ -9,7 +9,7 @@ flowchart TB
     command --> env["Load environment\nprecedence: process env → .env → ~/.jev-router.env → ~/.jev-claude.env"]
     env --> find["Find `claude` executable on PATH"]
     env --> saved["Read existing ~/.claude/settings.json model\nfor later restoration"]
-    find --> key{"JEV_API_KEY or\nTYPESAFE_API_KEY?"}
+    find --> key{"Routing credentials?\nhasCredentials(): JEV_API_KEY (typesafe),\nCLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (cloudflare),\nAI_GATEWAY_API_KEY (vercel)"}
 
     key -- No --> direct["Spawn real Claude Code\nwithout routing"]
     key -- Yes --> proxyStart["Start ephemeral loopback proxy\n127.0.0.1:random-port"]
@@ -52,7 +52,7 @@ flowchart TB
 
   subgraph routing["Routing — src/router.mjs + src/policy.mjs"]
     direction TB
-    jev["Jev call: TypeSafe systemOne API,\nor Cloudflare Workers AI (JEV_PROVIDER=cloudflare)\nSends only fresh user prompt plus:\ncurrent tier, approximate context, available tiers"]
+    jev["Jev call: TypeSafe systemOne API,\nCloudflare Workers AI, or Vercel AI Gateway\n(JEV_PROVIDER=cloudflare|vercel)\nSends only fresh user prompt plus:\ncurrent tier, approximate context, available tiers"]
     policy["Policy resolves final tier\n• prompt override wins\n• failure / malformed answer: keep current\n• low confidence: no downgrade; upgrades capped at sonnet\n• large context: no downgrade that rebuilds cache\n• unavailable tier: choose nearest stronger available\n• fable requires JEV_ALLOW_FABLE=1"]
   end
 

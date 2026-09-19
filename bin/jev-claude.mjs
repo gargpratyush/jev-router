@@ -138,8 +138,9 @@ if (hasCredentials()) {
 } else {
   process.stderr.write(
     `[jev] no routing credentials found - starting Claude Code without routing\n` +
-      `[jev] set JEV_API_KEY=... (TypeSafe), or JEV_PROVIDER=cloudflare with\n` +
-      `[jev] CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, in ~/.jev-router.env to enable routing\n`,
+      `[jev] set JEV_API_KEY=... (TypeSafe), JEV_PROVIDER=cloudflare with\n` +
+      `[jev] CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, or JEV_PROVIDER=vercel with\n` +
+      `[jev] AI_GATEWAY_API_KEY, in ~/.jev-router.env to enable routing\n`,
   );
 }
 

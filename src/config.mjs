@@ -46,18 +46,28 @@ export const availableTiers = () =>
   TIER_NAMES.filter((n) => n !== "fable" || process.env.JEV_ALLOW_FABLE === "1");
 
 /**
- * Which Jev endpoint answers routing questions: the TypeSafe API (`typesafe`) or the same
- * model hosted on Cloudflare Workers AI (`cloudflare`). Explicit, never auto-detected, so a
- * half-set Cloudflare token cannot silently switch providers.
+ * Which Jev endpoint answers routing questions: the TypeSafe API (`typesafe`), the same
+ * model hosted on Cloudflare Workers AI (`cloudflare`), or the same model behind the
+ * Vercel AI Gateway (`vercel`). Explicit, never auto-detected, so a half-set token cannot
+ * silently switch providers.
  */
-export const providerName = () =>
-  process.env.JEV_PROVIDER === "cloudflare" ? "cloudflare" : "typesafe";
+export const providerName = () => {
+  if (process.env.JEV_PROVIDER === "cloudflare") return "cloudflare";
+  if (process.env.JEV_PROVIDER === "vercel") return "vercel";
+  return "typesafe";
+};
 
 /** Whether the active provider has the credentials it needs. */
-export const hasCredentials = () =>
-  providerName() === "cloudflare"
-    ? Boolean(process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_ACCOUNT_ID)
-    : Boolean(process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY);
+export const hasCredentials = () => {
+  switch (providerName()) {
+    case "cloudflare":
+      return Boolean(process.env.CLOUDFLARE_API_TOKEN && process.env.CLOUDFLARE_ACCOUNT_ID);
+    case "vercel":
+      return Boolean(process.env.AI_GATEWAY_API_KEY);
+    default:
+      return Boolean(process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY);
+  }
+};
 
 export const THRESHOLDS = {
   /** Below this Jev confidence we refuse to downgrade and cap upgrades at `uncertainCeiling`. */
