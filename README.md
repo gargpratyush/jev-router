@@ -206,6 +206,7 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | --- | --- | --- |
 | `JEV_API_KEY` | Both | Enables routing. `TYPESAFE_API_KEY` also works. |
 | `JEV_ALLOW_FABLE` | Both | Enables the opt-in long tier. |
+| `JEV_DOWNGRADE_CUTOFF_TOKENS` | Both | Largest context that may still downgrade; defaults to `20000`. Set a larger value to permit downgrades in longer conversations. |
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
 | `JEV_NO_STATUSLINE` | Claude | Disables the injected Claude status line. |
@@ -229,12 +230,17 @@ ids are used only until the CLI fetches its catalog.
 - Claude request fields unsupported by a routed tier, such as adaptive thinking on Haiku,
   are removed before forwarding.
 - Codex's current request format stores tool definitions inside its Responses API input.
+- Automatic Codex routing stays within the virtual model's Responses Lite capability.
+  Models using a different request format remain available for manual selection.
 - Codex's ChatGPT backend may stream SSE without a `Content-Type` header; the proxy detects
   the event stream from its first frame.
 - Codex workspace-specific enterprise origins are internal to its built-in provider and
   cannot be reproduced by a custom provider.
 
 ## Development
+
+Run `make install` from this checkout to install its locked dependencies and link the
+local CLI commands globally. Restart running `jev-codex` processes to load source changes.
 
 ```bash
 npm install

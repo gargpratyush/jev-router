@@ -45,17 +45,21 @@ export const tierOf = (model) =>
 export const availableTiers = () =>
   TIER_NAMES.filter((n) => n !== "fable" || process.env.JEV_ALLOW_FABLE === "1");
 
+export const DEFAULT_DOWNGRADE_CUTOFF_TOKENS = 20000;
+
+// Read this on every decision because launcher-managed .env files load after this module evaluates.
+export const downgradeCutoffTokens = () => {
+  const configured = process.env.JEV_DOWNGRADE_CUTOFF_TOKENS;
+  if (configured == null || configured.trim() === "") return DEFAULT_DOWNGRADE_CUTOFF_TOKENS;
+  const value = Number(configured);
+  return Number.isSafeInteger(value) && value >= 0 ? value : DEFAULT_DOWNGRADE_CUTOFF_TOKENS;
+};
+
 export const THRESHOLDS = {
   /** Below this Jev confidence we refuse to downgrade and cap upgrades at `uncertainCeiling`. */
   minConfidence: 0.3,
   /** Safest tier to land on when Jev is unsure. */
   uncertainCeiling: "sonnet",
-  /**
-   * Switching models invalidates the prompt cache; the next turn re-sends the whole
-   * conversation. Measured at ~23.6k cache-creation tokens switching into Opus, so a
-   * downgrade only pays off while the conversation is still small.
-   */
-  downgradeMaxContextTokens: 20000,
   /**
    * Per-attempt Jev HTTP timeout and the hard wall-clock deadline for the whole routing
    * call. Measured: ~300-350ms warm, ~900-1000ms on the first call (TLS handshake), so the

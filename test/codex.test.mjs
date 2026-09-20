@@ -148,6 +148,7 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
         url: req.url,
         authorization: req.headers.authorization,
         account: req.headers["chatgpt-account-id"],
+        routingHint: req.headers["x-codex-routing-hint"],
         body: chunks.length ? JSON.parse(Buffer.concat(chunks)) : null,
       });
       if (req.url.startsWith("/backend-api/codex/models")) {
@@ -211,6 +212,7 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
     headers: { ...headers, "content-type": "application/json" },
     body: JSON.stringify({
       model: "jev-router",
+      service_tier: "priority",
       prompt_cache_key: "main",
       input: [
         { type: "additional_tools", role: "developer", tools: [{}] },
@@ -222,6 +224,7 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
   assert.equal(seen[0].authorization, "Bearer subscription-token");
   assert.equal(seen[0].account, "acct");
   assert.equal(seen[1].body.model, "gpt-5.6-sol");
+  assert.equal(seen[1].routingHint, "model=gpt-5.6-sol;tier=priority");
   assert.equal(readStatus(statusId).tier, "opus");
   assert.equal(readStatus(statusId).model, "gpt-5.6-sol");
   assert.equal(readStatus(statusId).prompt, "debug this race");

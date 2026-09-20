@@ -1,4 +1,10 @@
-import { TIER_NAMES, THRESHOLDS, OVERRIDE_PATTERNS, rankOf } from "./config.mjs";
+import {
+  TIER_NAMES,
+  THRESHOLDS,
+  OVERRIDE_PATTERNS,
+  downgradeCutoffTokens,
+  rankOf,
+} from "./config.mjs";
 
 /** The tier the user named explicitly in the prompt, or null. */
 export function detectOverride(prompt) {
@@ -54,7 +60,7 @@ export function decide({ prompt, jev, current, available, contextTokens = 0 }) {
     if (rankOf(target) > ceiling) return settle(TIER_NAMES[ceiling], "low-confidence-capped");
   }
 
-  if (rankOf(target) < rankOf(current) && contextTokens > THRESHOLDS.downgradeMaxContextTokens) {
+  if (rankOf(target) < rankOf(current) && contextTokens > downgradeCutoffTokens()) {
     return settle(current, "downgrade-not-worth-cache-rebuild");
   }
 
