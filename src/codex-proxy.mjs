@@ -319,5 +319,11 @@ export async function startCodexProxy({
   });
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return { port: server.address().port, close: () => server.close() };
+  return {
+    port: server.address().port,
+    close: () => {
+      server.close();
+      server.closeAllConnections?.();
+    },
+  };
 }

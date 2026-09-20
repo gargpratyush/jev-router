@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import net from "node:net";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +18,28 @@ import {
 } from "../src/codex-proxy.mjs";
 import { codexArgs, installCodexSkill } from "../src/codex-cli.mjs";
 import { readStatus } from "../src/status.mjs";
+
+test("Codex proxy shutdown closes active client connections", async (t) => {
+  const { port, close } = await startCodexProxy();
+  const socket = net.connect({ host: "127.0.0.1", port });
+  t.after(() => socket.destroy());
+
+  await new Promise((resolve, reject) => {
+    socket.once("connect", resolve);
+    socket.once("error", reject);
+  });
+
+  const closed = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("proxy connection stayed open after close()")), 1000);
+    socket.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+
+  close();
+  await closed;
+});
 
 test("Codex uses a temporary authenticated Jev provider", () => {
   const args = codexArgs("http://127.0.0.1:1234", ["--sandbox", "read-only"]);
