@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import { once } from "node:events";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -262,4 +263,31 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
   assert.equal(routeCalls, 1);
   assert.equal(seen[3].body.model, "gpt-5.6-sol");
   assert.equal(readStatus(statusId).metrics.reasoningRequired, 0.91);
+});
+
+test("Codex proxy shutdown closes active client connections", async (t) => {
+  const upstream = http.createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.write("stream-open");
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  t.after(() => {
+    upstream.closeAllConnections?.();
+    upstream.close();
+  });
+
+  const upstreamURL = `http://127.0.0.1:${upstream.address().port}`;
+  const { port, close } = await startCodexProxy({ chatgptBaseURL: upstreamURL, apiBaseURL: upstreamURL });
+  const request = http.get(`http://127.0.0.1:${port}/stream`);
+  request.on("error", () => {});
+  const [response] = await once(request, "response");
+  response.on("error", () => {});
+  await once(response, "data");
+  const socketClosed = once(request.socket, "close");
+
+  close();
+  await Promise.race([
+    socketClosed,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("proxy client connection stayed open after close()")), 2000)),
+  ]);
 });
