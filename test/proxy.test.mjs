@@ -230,6 +230,19 @@ test("ignores a tool_result continuation mid-turn", () => {
   assert.equal(newTurnPrompt(body), null);
 });
 
+test("a trailing system message from a SessionStart hook does not hide the user turn", () => {
+  const hook = { role: "system", content: [{ type: "text", text: "SessionStart:startup hook success" }] };
+  const body = withTools([{ role: "user", content: [{ type: "text", text: "fix the bug" }] }, hook]);
+  assert.equal(newTurnPrompt(body), "fix the bug");
+  const cont = withTools([
+    { role: "user", content: "fix the bug" },
+    { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }] },
+    { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "done" }] },
+    hook,
+  ]);
+  assert.equal(newTurnPrompt(cont), null, "a tool-result continuation is still not a fresh turn");
+});
+
 test("ignores auxiliary calls that carry no tools", () => {
   const body = { messages: [{ role: "user", content: "summarise this" }] };
   assert.equal(newTurnPrompt(body), null);

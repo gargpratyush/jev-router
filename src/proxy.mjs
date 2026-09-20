@@ -54,7 +54,12 @@ export function sanitizeSchema(node) {
  */
 export function newTurnPrompt(body) {
   if (!Array.isArray(body?.tools) || body.tools.length === 0) return null; // auxiliary call
-  const last = body?.messages?.[body.messages.length - 1];
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  // Claude Code appends SessionStart hook output as a trailing `system` message after the
+  // user turn, so the newest user message is not always the last element (#18, #28).
+  let i = messages.length - 1;
+  while (i >= 0 && messages[i]?.role === "system") i--;
+  const last = messages[i];
   if (!last || last.role !== "user") return null;
   let text;
   if (typeof last.content === "string") {
