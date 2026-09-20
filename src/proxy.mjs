@@ -232,7 +232,10 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
                 jev: tierAnswer,
                 current,
                 available,
-                contextTokens,
+                // The cache-rebuild guard protects a prompt cache built on `current`. The
+                // first turn of a conversation has none yet, however large its opening
+                // message is (Claude Code injects CLAUDE.md and hook output into it).
+                contextTokens: state.tier ? contextTokens : 0,
               });
               const model =
                 shouldUseExactModel(reason, chosen?.tier, tier)

@@ -94,6 +94,42 @@ test("keeps available Claude model versions as separate Jev choices", () => {
   );
 });
 
+test("the first turn has no prompt cache to protect, so a large opening message can still start cheap", async (t) => {
+  const seen = [];
+  const upstream = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      seen.push(JSON.parse(Buffer.concat(chunks)));
+      res.setHeader("content-type", "application/json");
+      res.end('{"id":"msg_1","type":"message","model":"claude-haiku-4-5-20251001"}');
+    });
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  t.after(() => upstream.close());
+
+  const { port, close } = await startProxy({
+    upstreamURL: `http://127.0.0.1:${upstream.address().port}`,
+    route: async () => ({ choice: "claude-haiku-4-5-20251001", confidence: 0.95, ms: 1 }),
+  });
+  t.after(close);
+
+  // ~40k tokens of injected instructions in the opening message, as Claude Code does with
+  // CLAUDE.md and SessionStart hooks; measured 38k on a real first request.
+  const opening = `<system-reminder>${"x".repeat(160000)}</system-reminder>\nrename this variable`;
+  await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "jev-router",
+      tools: [{ name: "Bash" }],
+      messages: [{ role: "user", content: opening }],
+    }),
+  });
+
+  assert.equal(seen[0].model, "claude-haiku-4-5-20251001", "first turn pinned to opus by the cache guard");
+});
+
 test("Claude proxy sends exact account models to Jev and routes the chosen version", async (t) => {
   const seen = [];
   const upstream = http.createServer((req, res) => {
