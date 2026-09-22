@@ -54,7 +54,13 @@ export function sanitizeSchema(node) {
  */
 export function newTurnPrompt(body) {
   if (!Array.isArray(body?.tools) || body.tools.length === 0) return null; // auxiliary call
-  const last = body?.messages?.[body.messages.length - 1];
+  // Claude Code appends SessionStart hook output as a trailing `system` message, so the last
+  // message is not always the user turn. Skip those, but still require a real user turn:
+  // scanning past an assistant or tool_result message would re-route in the middle of a
+  // tool loop, which is exactly what this function exists to prevent.
+  let index = (body?.messages?.length ?? 0) - 1;
+  while (index >= 0 && body.messages[index].role === "system") index--;
+  const last = index >= 0 ? body.messages[index] : null;
   if (!last || last.role !== "user") return null;
   let text;
   if (typeof last.content === "string") {

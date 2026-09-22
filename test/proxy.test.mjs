@@ -240,6 +240,28 @@ test("ignores a request whose last message is from the assistant", () => {
   assert.equal(newTurnPrompt(body), null);
 });
 
+test("reads the user turn behind SessionStart hook context", () => {
+  const body = withTools([
+    { role: "user", content: "fix the bug" },
+    { role: "system", content: "SessionStart:startup hook success: MODE ACTIVE" },
+  ]);
+  assert.equal(newTurnPrompt(body), "fix the bug");
+});
+
+test("still ignores a tool_result continuation behind hook context", () => {
+  const body = withTools([
+    { role: "user", content: "fix the bug" },
+    { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }] },
+    { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "done" }] },
+    { role: "system", content: "SessionStart:startup hook success: MODE ACTIVE" },
+  ]);
+  assert.equal(newTurnPrompt(body), null);
+});
+
+test("ignores a request that is nothing but hook context", () => {
+  assert.equal(newTurnPrompt(withTools([{ role: "system", content: "hook output" }])), null);
+});
+
 test("ignores an empty prompt", () => {
   assert.equal(newTurnPrompt(withTools([{ role: "user", content: "   " }])), null);
 });
