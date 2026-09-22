@@ -33,8 +33,8 @@ test("formats the last routing decision", () => {
 
 test("shows the concrete provider model when available", () => {
   assert.match(
-    formatExplanation({ tier: "haiku", model: "gpt-5.6-luna", confidence: 0.99 }),
-    /Selected model: GPT-5\.6-LUNA/,
+    formatExplanation({ tier: "haiku", model: "gpt-6-luna", confidence: 0.99 }),
+    /Selected model: GPT-6-LUNA/,
   );
 });
 

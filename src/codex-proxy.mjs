@@ -6,15 +6,15 @@ import { availableTiers, shouldUseExactModel } from "./config.mjs";
 import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
 import { log } from "./log.mjs";
-import { writeDecision, writeStatus } from "./status.mjs";
+import { readStatus, writeDecision, writeStatus, writeUsage } from "./status.mjs";
+import { aggregateUsage, formatUsage, formatUsageReport, usageFromResponse } from "./usage.mjs";
 
 const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const API_BASE_URL = "https://api.openai.com/v1";
 export const CODEX_AUTO_MODEL = "jev-router";
 const DEFAULT_MODELS = {
-  haiku: "gpt-5.6-luna",
-  sonnet: "gpt-5.6-terra",
-  opus: "gpt-5.6-sol",
+  haiku: "gpt-6-luna",
+  opus: "gpt-6-sol",
   fable: "gpt-6-astra",
 };
 const MODEL_ENV = {
@@ -27,7 +27,10 @@ const MODEL_ENV = {
 export const codexModelOf = (tier) => process.env[MODEL_ENV[tier]] ?? DEFAULT_MODELS[tier];
 
 export function codexTierOf(model) {
-  const configured = Object.keys(DEFAULT_MODELS).find((tier) => codexModelOf(tier) === model);
+  const configured = Object.keys(MODEL_ENV).find((tier) => {
+    const id = process.env[MODEL_ENV[tier]] ?? DEFAULT_MODELS[tier];
+    return typeof id === "string" && id === model;
+  });
   if (configured) return configured;
   if (/(?:astra|fable|long)/i.test(model ?? "")) return "fable";
   if (/(?:sol|opus|strong|max|pro)/i.test(model ?? "")) return "opus";
@@ -106,7 +109,7 @@ export function addJevModel(catalog) {
     return catalog;
   }
   const template =
-    catalog.models.find((model) => model.slug === codexModelOf("sonnet")) ??
+    catalog.models.find((model) => model.slug === codexModelOf("opus")) ??
     catalog.models.find((model) => model.visibility === "list") ??
     catalog.models[0];
   if (!template) return catalog;
@@ -161,6 +164,49 @@ export function jevDecisionEvents({ tier, model = codexModelOf(tier), confidence
   return events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
 }
 
+export function jevUsageEvents(text) {
+  const id = `jev-usage-${randomUUID()}`;
+  const item = {
+    type: "message",
+    role: "assistant",
+    id,
+    phase: "commentary",
+    content: [{ type: "output_text", text }],
+  };
+  return [
+    { type: "response.output_item.added", item: { ...item, content: [] } },
+    { type: "response.output_text.delta", item_id: id, delta: text },
+    { type: "response.output_item.done", item },
+  ].map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
+}
+
+const sseEvent = (frame) => {
+  const fields = frame.replace(/\r/g, "").split("\n");
+  const event = fields.find((line) => line.startsWith("event:"))?.slice(6).trim();
+  const data = fields.filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
+  if (!event || !data) return null;
+  try { return { event, payload: JSON.parse(data) }; } catch { return null; }
+};
+
+const completedResponse = (frame) => {
+  const parsed = sseEvent(frame);
+  if (!parsed || !/^response\.(?:completed|failed)$/.test(parsed.event)) return null;
+  return { completed: parsed.event === "response.completed", usage: usageFromResponse(parsed.payload) };
+};
+
+const usageText = (turn) => [
+  formatUsage(turn.aggregate),
+  `Model: ${turn.model ?? "unavailable"}`,
+  ...(turn.requests.length > 1 ? [`Requests: ${turn.requests.length}`] : []),
+].join("\n");
+
+const usageCommandEvents = (text) => {
+  const response = { id: `jev-usage-${randomUUID()}`, status: "completed" };
+  return `event: response.created\ndata: ${JSON.stringify({ type: "response.created", response })}\n\n` +
+    jevUsageEvents(text) +
+    `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response })}\n\n`;
+};
+
 const debug = (line) => process.env.JEV_DEBUG && log(line);
 const upstreamPath = (base, path) => `${new URL(base).pathname.replace(/\/$/, "")}${path}`;
 
@@ -171,6 +217,7 @@ export async function startCodexProxy({
   statusId = "",
 } = {}) {
   const states = new Map();
+  const usageTurns = new Map();
   const models = new Map();
 
   const server = http.createServer((req, res) => {
@@ -179,6 +226,8 @@ export async function startCodexProxy({
     req.on("end", async () => {
       let out = Buffer.concat(chunks);
       let routing;
+      let usageTurn;
+      let isUsageCommand = false;
       if (req.method === "POST" && /\/responses(?:\?|$)/.test(req.url ?? "")) {
         try {
           const body = JSON.parse(out.toString());
@@ -195,9 +244,10 @@ export async function startCodexProxy({
             const current = codexTierOf(currentModel) ?? "opus";
             const prompt = codexNewTurnPrompt(body);
             const explaining = prompt?.includes("<jev-explain>") || /^\$jev-explain\b/i.test(prompt ?? "");
+            isUsageCommand = /^\$jev-usage\b/i.test(prompt ?? "");
             let tier = current;
             let model = currentModel;
-            if (prompt && !explaining) {
+            if (prompt && !explaining && !isUsageCommand) {
               const contextTokens = Math.round(JSON.stringify(body.input).length / 4);
               const jev = await route({ prompt, current: currentModel, contextTokens, models: candidates });
               const chosen = candidates.find((candidate) => candidate.id === jev?.choice);
@@ -230,15 +280,44 @@ export async function startCodexProxy({
               debug(`${key} ${current} -> ${tier} (${decision.reason}) | ${prompt.slice(0, 60)}`);
             }
             applyCodexTier(body, tier, models, model);
+            const existingTurn = usageTurns.get(key);
+            if (prompt && !explaining && !isUsageCommand) {
+              // A fresh prompt normally begins a logical turn. A retransmission while its
+              // prior response is still open is a retry and belongs to that same turn.
+              usageTurn = existingTurn?.open && existingTurn.prompt === prompt
+                ? existingTurn
+                : { id: `turn-${randomUUID()}`, prompt, model: body.model, at: Date.now(), open: true, requests: [] };
+              usageTurns.set(key, usageTurn);
+            } else {
+              usageTurn = existingTurn;
+            }
           } else {
             const prompt = codexNewTurnPrompt(body);
             const explaining = prompt?.includes("<jev-explain>") || /^\$jev-explain\b/i.test(prompt ?? "");
-            if (prompt && !explaining) writeStatus(statusId, { manual: true, at: Date.now() });
+            isUsageCommand = /^\$jev-usage\b/i.test(prompt ?? "");
+            if (prompt && !explaining && !isUsageCommand) writeStatus(statusId, { manual: true, at: Date.now() });
+            const key = codexConversationKey(body);
+            const existingTurn = usageTurns.get(key);
+            if (prompt && !explaining && !isUsageCommand) {
+              usageTurn = existingTurn?.open && existingTurn.prompt === prompt
+                ? existingTurn
+                : { id: `turn-${randomUUID()}`, prompt, model: body.model, at: Date.now(), open: true, requests: [] };
+              usageTurns.set(key, usageTurn);
+            } else {
+              usageTurn = existingTurn;
+            }
           }
           out = Buffer.from(JSON.stringify(body));
         } catch (err) {
           debug(`codex passthrough, could not process body: ${err.message}`);
         }
+      }
+
+      if (isUsageCommand) {
+        const turns = readStatus(statusId)?.usage?.turns ?? [];
+        res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+        res.end(usageCommandEvents(formatUsageReport(turns)));
+        return;
       }
 
       const base = upstreamFor(req.headers, req.url, chatgptBaseURL, apiBaseURL);
@@ -276,33 +355,65 @@ export async function startCodexProxy({
             return;
           }
 
-          const inspectForDecision = routing && response.statusCode >= 200 && response.statusCode < 300;
-          if (inspectForDecision) delete responseHeaders["content-length"];
+          const inspectResponse = Boolean(routing || usageTurn);
+          if (inspectResponse) delete responseHeaders["content-length"];
           res.writeHead(response.statusCode, responseHeaders);
-          if (!inspectForDecision) {
+          if (!inspectResponse) {
             response.pipe(res);
             return;
           }
           let pending = "";
           let inspected = false;
+          let usageRecorded = false;
+          const requestUsage = { id: `request-${randomUUID()}`, at: Date.now(), model: usageTurn?.model, status: response.statusCode };
+          const recordUsage = (found, completed = true) => {
+            if (!usageTurn || usageRecorded) return;
+            usageRecorded = true;
+            requestUsage.raw = found?.raw ?? null;
+            requestUsage.usage = found?.usage ?? null;
+            requestUsage.model = found?.model ?? requestUsage.model;
+            usageTurn.requests.push(requestUsage);
+            usageTurn.model = requestUsage.model ?? usageTurn.model;
+            usageTurn.aggregate = aggregateUsage(usageTurn.requests);
+            usageTurn.updatedAt = Date.now();
+            // A failed response can be retried by Codex. Keep that logical turn open so
+            // the retry's reported usage is aggregated instead of becoming a new turn.
+            usageTurn.open = !completed;
+            writeUsage(statusId, usageTurn);
+          };
+          const forwardFrame = (frame, alreadyWritten = false) => {
+            if (!alreadyWritten) res.write(frame);
+            const event = completedResponse(frame);
+            if (event || /event:\s*response\.(?:completed|failed)/.test(frame)) {
+              recordUsage(event?.usage, event?.completed);
+              if (usageTurn) res.write(jevUsageEvents(usageText(usageTurn)));
+            }
+          };
           response.on("data", (chunk) => {
-            if (inspected) return void res.write(chunk);
             pending += chunk.toString();
-            const end = pending.indexOf("\n\n");
-            if (end < 0) return;
-            const first = pending.slice(0, end + 2);
-            res.write(first);
-            const isSSE = /^(?:event|data):/m.test(first);
-            if (isSSE) res.write(jevDecisionEvents(routing));
-            debug(`codex decision display ${isSSE ? "inject" : "skip"}`);
-            res.write(pending.slice(end + 2));
-            pending = "";
-            inspected = true;
+            let end;
+            while ((end = pending.search(/\r?\n\r?\n/)) >= 0) {
+              const frame = pending.slice(0, end + (pending[end] === "\r" ? 4 : 2));
+              pending = pending.slice(frame.length);
+              if (!inspected) {
+                const isSSE = /^(?:event|data):/m.test(frame);
+                // Preserve Codex's initial response-created frame before injecting commentary.
+                if (isSSE) res.write(frame);
+                if (isSSE && routing) res.write(jevDecisionEvents(routing));
+                debug(`codex decision display ${isSSE && routing ? "inject" : "skip"}`);
+                inspected = true;
+                forwardFrame(frame, isSSE);
+                continue;
+              }
+              forwardFrame(frame);
+            }
           });
           response.on("end", () => {
-            if (pending) {
-              debug("codex decision display skip");
-              res.write(pending);
+            if (pending) forwardFrame(pending);
+            if (usageTurn && !usageRecorded) {
+              let found;
+              try { found = usageFromResponse(JSON.parse(pending)); } catch {}
+              recordUsage(found, response.statusCode >= 200 && response.statusCode < 300);
             }
             res.end();
           });
