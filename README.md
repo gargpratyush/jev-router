@@ -205,6 +205,7 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | Variable | Interface | Effect |
 | --- | --- | --- |
 | `JEV_API_KEY` | Both | Enables routing. `TYPESAFE_API_KEY` also works. |
+| `TYPESAFE_BASE_URL` | Both | Sends routing decisions to another System-One server instead of `https://api.typesafe.ai`, for example a self-hosted [Laya](https://github.com/NandhaKishorM/laya) serving `POST /v1/systemone`. `JEV_API_KEY` is still required and is sent to that server as the bearer token. |
 | `JEV_ALLOW_FABLE` | Both | Enables the opt-in long tier. |
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
@@ -252,7 +253,11 @@ injection, and decision display.
 
 ## Limitations
 
-- The user's prompt text is sent to TypeSafe for the routing decision. Nothing else is.
+- The user's prompt text is sent to TypeSafe (or to `TYPESAFE_BASE_URL`, when set) for the routing
+  decision. Nothing else is.
+- A self-hosted Laya reports `confidence` as normalized entropy, `1 - H(p)/log k`, not as the chosen
+  option's probability, so `THRESHOLDS.minConfidence` is read on that scale. Check it against
+  your own server before relying on it.
 - Jev adds latency only to the first request of a turn; tool-loop continuations add none.
 - Claude Code and Codex request formats are not public contracts. Use `JEV_DUMP` to diagnose
   upstream changes.
