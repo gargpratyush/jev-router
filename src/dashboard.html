@@ -1,0 +1,1192 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jev-router dashboard — claude-code</title>
+<!-- Radix UI Themes Core Stylesheet -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@radix-ui/themes@3.1.6/styles.css">
+<style>
+  :root, [data-theme="light"] {
+    color-scheme: light;
+    --color-page-background: #fbfbfe;
+    --color-surface: #ffffff;
+    --color-surface-hover: #f7f9fd;
+    --gray-1: #fdfcfd;
+    --gray-2: #f9f8f9;
+    --gray-3: #f4f2f4;
+    --gray-4: #eeecee;
+    --gray-5: #e8e6e8;
+    --gray-6: #e2e0e2;
+    --gray-7: #dad8da;
+    --gray-8: #cfcdcf;
+    --gray-9: #8f8b8f;
+    --gray-10: #827e82;
+    --gray-11: #656166;
+    --gray-12: #1e1c1f;
+    --gray-a1: rgba(0, 0, 0, 0.012);
+    --gray-a2: rgba(0, 0, 0, 0.027);
+    --gray-a3: rgba(0, 0, 0, 0.047);
+    --gray-a4: rgba(0, 0, 0, 0.071);
+    --gray-a5: rgba(0, 0, 0, 0.094);
+    --gray-a6: rgba(0, 0, 0, 0.125);
+    --accent-1: #fdfdfe;
+    --accent-2: #f7f9fe;
+    --accent-3: #edf2fe;
+    --accent-4: #e1e9ff;
+    --accent-5: #d2deff;
+    --accent-6: #c1d0ff;
+    --accent-7: #abbfff;
+    --accent-8: #8ea8fc;
+    --accent-9: #3e63dd;
+    --accent-10: #3358d4;
+    --accent-11: #3a5ccc;
+    --accent-12: #1f2d5c;
+    --green-9: #30a46c;
+    --green-10: #299764;
+    --green-surface: #edfcf2;
+    --green-text: #1b6a43;
+    --amber-9: #f5a623;
+    --amber-10: #d9822b;
+    --amber-surface: #fff8e8;
+    --amber-text: #8c5208;
+    --ruby-9: #e5484d;
+    --ruby-surface: #ffeef0;
+    --ruby-text: #96282d;
+    --blue-9: #0090ff;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-3: 0 6px 12px -2px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+    --radius-1: 4px;
+    --radius-2: 6px;
+    --radius-3: 8px;
+    --radius-4: 12px;
+  }
+
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --color-page-background: #111113;
+    --color-surface: #18181b;
+    --color-surface-hover: #202024;
+    --gray-1: #111113;
+    --gray-2: #18181a;
+    --gray-3: #222225;
+    --gray-4: #2a2a2e;
+    --gray-5: #323237;
+    --gray-6: #3c3c42;
+    --gray-7: #494950;
+    --gray-8: #62626b;
+    --gray-9: #6f6e77;
+    --gray-10: #7c7b84;
+    --gray-11: #b5b3bc;
+    --gray-12: #eeeeee;
+    --gray-a1: rgba(255, 255, 255, 0.02);
+    --gray-a2: rgba(255, 255, 255, 0.04);
+    --gray-a3: rgba(255, 255, 255, 0.07);
+    --gray-a4: rgba(255, 255, 255, 0.1);
+    --gray-a5: rgba(255, 255, 255, 0.14);
+    --gray-a6: rgba(255, 255, 255, 0.18);
+    --accent-1: #0f111a;
+    --accent-2: #131726;
+    --accent-3: #182449;
+    --accent-4: #1d2e62;
+    --accent-5: #253974;
+    --accent-6: #2f4488;
+    --accent-7: #3b51a0;
+    --accent-8: #4b64c0;
+    --accent-9: #3e63dd;
+    --accent-10: #5373e7;
+    --accent-11: #849dff;
+    --accent-12: #eef1ff;
+    --green-9: #30a46c;
+    --green-10: #35b979;
+    --green-surface: rgba(48, 164, 108, 0.15);
+    --green-text: #4cc38a;
+    --amber-9: #f5a623;
+    --amber-10: #ffb224;
+    --amber-surface: rgba(245, 166, 35, 0.15);
+    --amber-text: #ffbf40;
+    --ruby-9: #e5484d;
+    --ruby-surface: rgba(229, 72, 77, 0.15);
+    --ruby-text: #ff6b70;
+    --blue-9: #0090ff;
+    --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-2: 0 4px 8px rgba(0, 0, 0, 0.35);
+    --shadow-3: 0 10px 20px -3px rgba(0, 0, 0, 0.45);
+    --radius-1: 4px;
+    --radius-2: 6px;
+    --radius-3: 8px;
+    --radius-4: 12px;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background-color: var(--color-page-background);
+    color: var(--gray-12);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.5;
+    transition: background-color 0.15s, color 0.15s;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  main {
+    max-width: 1220px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+    display: grid;
+    gap: 18px;
+  }
+
+  /* Header with Radix navigation bar feel */
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 18px;
+    padding-bottom: 4px;
+  }
+
+  h1 {
+    font-size: 19px;
+    margin: 0;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  h1 .logo-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--accent-9), var(--accent-11));
+    display: inline-grid;
+    place-items: center;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  h2 {
+    font-size: 13px;
+    margin: 0 0 12px;
+    font-weight: 600;
+    color: var(--gray-11);
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+
+  .spacer { flex: 1; }
+
+  .live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--green-9);
+    background: var(--green-surface);
+    padding: 3px 9px;
+    border-radius: 9999px;
+    border: 1px solid rgba(48, 164, 108, 0.25);
+  }
+
+  .live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green-9);
+    box-shadow: 0 0 0 2px var(--green-surface);
+    animation: pulse-dot 2s infinite ease-in-out;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+
+  /* Radix UI Segmented Control */
+  .rt-SegmentedControlRoot {
+    display: inline-flex;
+    background-color: var(--gray-a3);
+    border: 1px solid var(--gray-a4);
+    border-radius: var(--radius-3);
+    padding: 3px;
+    gap: 2px;
+  }
+
+  .rt-SegmentedControlItem {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gray-11);
+    background: none;
+    border: 0;
+    padding: 4px 10px;
+    border-radius: var(--radius-2);
+    cursor: pointer;
+    transition: background-color 0.12s, color 0.12s;
+  }
+
+  .rt-SegmentedControlItem:hover {
+    color: var(--gray-12);
+  }
+
+  .rt-SegmentedControlItem[aria-pressed="true"] {
+    background-color: var(--color-surface);
+    color: var(--gray-12);
+    box-shadow: var(--shadow-1);
+  }
+
+  /* Radix UI Buttons */
+  .rt-Button {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    background-color: var(--color-surface);
+    color: var(--gray-12);
+    border: 1px solid var(--gray-a5);
+    border-radius: var(--radius-2);
+    padding: 5px 11px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: var(--shadow-1);
+    transition: all 0.12s ease;
+  }
+
+  .rt-Button:hover {
+    background-color: var(--gray-a3);
+    border-color: var(--gray-a6);
+  }
+
+  /* Radix Card */
+  .rt-Card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--gray-a4);
+    border-radius: var(--radius-4);
+    padding: 18px;
+    min-width: 0;
+    box-shadow: var(--shadow-1);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .rt-Card:hover {
+    border-color: var(--gray-a6);
+  }
+
+  .cols {
+    display: grid;
+    gap: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
+
+  /* Router status card */
+  .router {
+    display: grid;
+    gap: 8px;
+    border-left: 4px solid var(--state);
+  }
+
+  .router .who {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gray-11);
+  }
+
+  .router .state {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+  }
+
+  .router .icon {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--state);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+  }
+
+  .router .why {
+    color: var(--gray-11);
+    font-size: 13px;
+  }
+
+  .router .meta {
+    color: var(--gray-10);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .s-routing { --state: var(--green-9); }
+  .s-passthrough { --state: var(--amber-9); }
+  .s-failing { --state: var(--ruby-9); }
+  .s-idle, .s-offline, .s-baseline { --state: var(--gray-8); }
+  .s-passthrough .icon { color: #1e1c1f; }
+
+  /* Tiles / Metrics grid */
+  .tiles {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+
+  .tile {
+    padding: 14px 16px;
+  }
+
+  .tile .label {
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--gray-11);
+  }
+
+  .tile .value {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--gray-12);
+    margin: 4px 0 2px;
+  }
+
+  .tile .sub {
+    font-size: 12px;
+    color: var(--gray-10);
+  }
+
+  /* Share & legend */
+  .share {
+    display: flex;
+    gap: 3px;
+    height: 16px;
+    border-radius: var(--radius-2);
+    overflow: hidden;
+    background: var(--gray-a3);
+  }
+
+  .share span { min-width: 3px; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    margin-top: 14px;
+    font-size: 12.5px;
+    color: var(--gray-11);
+  }
+
+  .legend b {
+    color: var(--gray-12);
+    font-weight: 600;
+  }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: var(--c);
+  }
+
+  .c-direct { --c: var(--blue-9); }
+  .c-forced { --c: var(--accent-9); }
+  .c-hint { --c: #10b981; }
+  .c-none { --c: var(--amber-9); }
+  .c-passthrough { --c: var(--gray-8); }
+  .c-failed { --c: var(--ruby-9); }
+
+  /* Timeline */
+  .timeline {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 96px;
+    border-bottom: 1px solid var(--gray-a5);
+    margin-top: 18px;
+  }
+
+  .timeline .col {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: center;
+    gap: 2px;
+    outline: none;
+    cursor: pointer;
+    border-radius: 2px 2px 0 0;
+  }
+
+  .timeline .col span {
+    width: 100%;
+    max-width: 22px;
+    background: var(--c);
+  }
+
+  .timeline .col span:last-child {
+    border-radius: 3px 3px 0 0;
+  }
+
+  .timeline .col:hover, .timeline .col:focus-visible {
+    background: var(--gray-a3);
+  }
+
+  .axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--gray-10);
+    margin-top: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Radix Tooltip */
+  #tip {
+    position: fixed;
+    z-index: 1000;
+    pointer-events: none;
+    background: var(--color-surface);
+    border: 1px solid var(--gray-a5);
+    border-radius: var(--radius-3);
+    padding: 10px 14px;
+    font-size: 12px;
+    box-shadow: var(--shadow-3);
+    display: none;
+    max-width: 480px;
+    line-height: 1.5;
+  }
+
+  #tip div {
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    color: var(--gray-11);
+    margin: 2px 0;
+  }
+
+  #tip b {
+    color: var(--gray-12);
+    word-break: break-all;
+  }
+
+  /* Reasons list */
+  .reasons {
+    display: grid;
+    gap: 12px;
+  }
+
+  .reason .top {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+  }
+
+  .reason code {
+    font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--gray-a3);
+    padding: 2px 6px;
+    border-radius: var(--radius-1);
+    color: var(--gray-12);
+  }
+
+  .reason .count {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--gray-12);
+  }
+
+  .reason .bar {
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--c);
+    margin: 5px 0 3px;
+    min-width: 3px;
+  }
+
+  .reason .text {
+    font-size: 12px;
+    color: var(--gray-11);
+  }
+
+  .tag {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--gray-11);
+    background: var(--gray-a3);
+    border: 1px solid var(--gray-a4);
+    border-radius: 9999px;
+    padding: 1px 8px;
+    white-space: nowrap;
+  }
+
+  .empty {
+    color: var(--gray-10);
+    font-size: 13px;
+  }
+
+  /* Tables: Radix UI style */
+  .scroll {
+    overflow-x: auto;
+    margin: 0 -18px -18px;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    white-space: nowrap;
+    border-top: 1px solid var(--gray-a3);
+  }
+
+  th {
+    color: var(--gray-11);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-top: 0;
+    background-color: var(--gray-a1);
+  }
+
+  th:first-child, td:first-child { padding-left: 18px; }
+  th:last-child, td:last-child { padding-right: 18px; }
+  td.num, th.num { text-align: right; }
+  td.reason-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: var(--gray-11); }
+  tr:hover td { background-color: var(--gray-a2); }
+  tr.before { opacity: 0.45; }
+  .note { color: var(--gray-10); font-size: 12px; margin: -4px 0 14px; }
+
+  /* Radix Badges */
+  .rt-Badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 7px;
+    border-radius: 9999px;
+    line-height: 1.35;
+    text-decoration: none;
+  }
+
+  .rt-color-slate {
+    background: var(--gray-a3);
+    color: var(--gray-11);
+    border: 1px solid var(--gray-a4);
+  }
+
+  .rt-color-indigo {
+    background: var(--accent-3);
+    color: var(--accent-11);
+    border: 1px solid var(--accent-6);
+  }
+
+  .rt-color-green {
+    background: var(--green-surface);
+    color: var(--green-text);
+    border: 1px solid rgba(48, 164, 108, 0.3);
+  }
+
+  .rt-color-amber {
+    background: var(--amber-surface);
+    color: var(--amber-text);
+    border: 1px solid rgba(245, 166, 35, 0.3);
+  }
+
+  .rt-color-ruby {
+    background: var(--ruby-surface);
+    color: var(--ruby-text);
+    border: 1px solid rgba(229, 72, 77, 0.3);
+  }
+
+  .rt-Code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    background: var(--gray-a3);
+    padding: 2px 6px;
+    border-radius: var(--radius-1);
+    color: var(--gray-12);
+  }
+
+  .time-cell {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: var(--gray-12);
+  }
+</style>
+</head>
+<body data-accent-color="indigo" data-gray-color="slate" data-radius="large">
+<main>
+  <header>
+    <h1>
+      <span class="logo-icon">J</span>
+      <span>jev-router</span>
+      <span class="rt-Badge rt-color-indigo" style="font-size: 11px; padding: 2px 8px; font-weight: 500;">Claude Code</span>
+    </h1>
+    <span class="live-badge" id="liveBadge">
+      <span class="live-dot"></span>
+      <span id="live">connecting…</span>
+    </span>
+    <span class="spacer"></span>
+    <div class="rt-SegmentedControlRoot" id="clients" role="group" aria-label="Client"></div>
+    <div class="rt-SegmentedControlRoot" id="ranges" role="group" aria-label="Time range"></div>
+    <button id="themeToggle" class="rt-Button" title="Toggle Light / Dark Theme">
+      <span id="themeIcon">🌙</span> Theme
+    </button>
+  </header>
+
+  <section class="cols" id="routers" aria-label="Router status"></section>
+
+  <section class="tiles" id="tiles" aria-label="Totals"></section>
+
+  <section class="cols">
+    <div class="rt-Card">
+      <h2>What happened to each request</h2>
+      <div class="share" id="share"></div>
+      <div class="legend" id="legend"></div>
+      <div class="timeline" id="timeline"></div>
+      <div class="axis" id="axis"></div>
+    </div>
+    <div class="rt-Card">
+      <h2>Why requests were not routed</h2>
+      <div class="reasons" id="reasons"></div>
+    </div>
+  </section>
+
+  <section class="rt-Card">
+    <h2>Token use: with Jev routing vs. baseline</h2>
+    <p class="note" id="compare-note"></p>
+    <div class="scroll"><table class="compare" id="compare"></table></div>
+  </section>
+
+  <section class="rt-Card">
+    <h2>Recent requests</h2>
+    <p class="note" id="note"></p>
+    <div class="scroll"><table>
+      <thead><tr>
+        <th>Time (Thailand 24h)</th><th>Client</th><th>Path</th><th>Model</th><th class="num">Tools</th><th>Mode</th><th>Tool</th>
+        <th class="num">Conf.</th><th>Reason</th><th class="num">Status</th><th class="num">Jev ms</th>
+        <th class="num">In</th><th class="num">Out</th><th class="num">Secs</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </section>
+</main>
+<div id="tip" role="status"></div>
+
+<script>
+"use strict";
+
+const POLL_MS = 1000;
+const IDLE_MS = 5 * 60 * 1000;
+const MAX_ROWS = 200;
+const KEPT_PER_ROUTER = 1000;
+const JEV_USD_PER_MILLION_INPUT_TOKENS = 0.042;
+const RANGES = [["15 min", 15 * 60e3], ["1 h", 60 * 60e3], ["24 h", 24 * 60 * 60e3], ["All", Infinity]];
+const CATEGORIES = [
+  ["direct", "direct — answered without the LLM"],
+  ["forced", "forced — model & effort set by Jev"],
+  ["hint", "hint — Jev's pick suggested to the LLM"],
+  ["none", "none — tool_choice none"],
+  ["passthrough", "passthrough — the LLM decided"],
+  ["failed", "passthrough — Jev failed"],
+];
+
+const REASONS = {
+  no_tools: ["Jev not asked", "The request carried no tools, so there was nothing to select."],
+  no_messages: ["Jev not asked", "The request had no conversation to decide on."],
+  previous_response_id: ["Jev not asked", "The conversation lives upstream (previous_response_id); the router can't see it."],
+  agent_message: ["Jev not asked", "The conversation holds a message between Codex agents (agent_message), which the router cannot read."],
+  non_function_tools: ["Jev not asked", "The roster has tools that aren't plain functions."],
+  malformed_tools: ["Jev not asked", "A tool in the roster has no name or no type; upstream gets to reject it."],
+  unsafe_tool_name: ["Jev not asked", "A tool's name has spaces, quotes or brackets in it. No provider accepts such a name, and the router won't repeat it to a model."],
+  unreadable_request: ["Jev not asked", "The body was JSON but not the shape this API documents; upstream gets to reject it."],
+  too_many_tools: ["Jev not asked", "The tool roster is larger than the router can shortlist."],
+  duplicate_tool_names: ["Jev not asked", "Two tools share a name."],
+  reserved_tool_name: ["Jev not asked", "A tool is named no_tool_needed, which the router reserves."],
+  tool_choice_already_decided: ["Jev not asked", "The client already fixed tool_choice itself."],
+  routing_disabled: ["Jev not asked", "Routing is switched off (baseline mode): tokens are metered, Jev is never asked."],
+  disabled_by_header: ["Jev not asked", "The client sent routing disabled header (e.g. x-jev-router: off)."],
+  unparseable_body: ["Jev not asked", "The body wasn't readable JSON; upstream gets to reject it."],
+  low_confidence: ["Jev asked", "Jev's confidence was below JEV_MIN_CONFIDENCE."],
+  jev_answers_disagree: ["Jev asked", "The tool pick and the needs-a-tool check contradicted each other."],
+  no_tool_needed: ["Jev asked", "Jev said no tool is needed; left to the LLM (hint-only request, or JEV_ON_NONE=passthrough)."],
+  hosted_tool_selected: ["Jev asked", "Jev picked a provider-run tool, which can't be forced by name."],
+  namespaced_tool_selected: ["Jev asked", "Jev picked a namespaced tool, which backends refuse to force."],
+  jev_unknown_tool: ["Jev asked", "Jev named a tool that isn't in the roster."],
+  upstream_rejected: ["Jev asked", "Upstream refused the rewritten request; the original was replayed."],
+  jev_error: ["Jev failed", "The Jev call errored or timed out. Check TYPESAFE_API_KEY and the network."],
+  jev_timeout: ["Jev failed", "Jev did not reply in time. Upstream was called without a shortlist."],
+  jev: ["Jev routed", "Request classified by TypeSafe Jev into optimal task tier & reasoning effort."],
+  "small task": ["Jev routed", "Small task: quick 1-5 line edit or basic lookup -> routed to Sonnet 5 low effort."],
+  "medium task": ["Jev routed", "Medium task: typical feature implementation across files -> Sonnet 5 high effort."],
+  "plan": ["Jev routed", "Architecture or roadmap planning -> Opus 5.5 high effort."],
+  "heavy task": ["Jev routed", "Complex refactoring or deep race condition debug -> Opus 5.5 xhigh effort."],
+  "utility": ["Jev routed", "Code lookups, docs checking, summaries -> Sonnet 5 medium effort."],
+  "chat": ["Jev routed", "Conversational replies or general chat -> Haiku 4.5."],
+};
+
+const reasonKey = (reason) => {
+  const norm = (reason || "").toLowerCase();
+  for (const k of Object.keys(REASONS)) {
+    if (norm.includes(k.toLowerCase())) return k;
+  }
+  return "jev";
+};
+
+// Target source: this Claude Code router on port 8790
+const sources = [
+  {
+    own: true,
+    port: Number(location.port || 8790),
+    name: "claude-code",
+    url: location.origin + "/events",
+    routingUrl: location.origin + "/routing?",
+    events: [],
+    seen: false,
+    up: true,
+    misses: 0,
+    wait: 0,
+    lastSeq: 0,
+  },
+];
+
+const view = { range: Infinity, client: "all" };
+let signature = "";
+
+const $ = (id) => document.getElementById(id);
+function h(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs ?? {})) {
+    if (v === undefined) continue;
+    if (k === "class") node.className = v;
+    else if (k.startsWith("aria-") || k === "role" || k === "type" || k === "title") node.setAttribute(k, v);
+    else node[k] = v;
+  }
+  for (const child of children) {
+    if (child === undefined || child === null) continue;
+    node.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
+  }
+  return node;
+}
+
+const at = (event) => (event.time ? Date.parse(event.time) : Date.now());
+const routed = (event) => event.mode === "direct" || event.mode === "forced" || event.mode === "hint" || event.mode === "routed";
+const failed = (event) => event.mode === "failed" || event.reason === "jev_error" || event.reason === "jev_timeout";
+const category = (event) => {
+  if (failed(event)) return "failed";
+  if (event.mode === "routed") return "forced";
+  return event.mode ?? "passthrough";
+};
+
+const int = (n) => (n === undefined ? "–" : Number(n).toLocaleString());
+const pct = (part, total) => (total ? Math.round((100 * part) / total) + "%" : "–");
+
+function ago(ms) {
+  if (ms < 0) ms = 0;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return s + "s";
+  const m = Math.round(s / 60);
+  if (m < 60) return m + "m";
+  const h = Math.round(m / 60);
+  return h < 24 ? h + "h" : Math.round(h / 24) + "d";
+}
+
+// -------------------------------------------------------------
+// Thailand Time (UTC+7 / Asia/Bangkok) in 24-hour format
+// -------------------------------------------------------------
+const clock = (ms, withDate) => {
+  const d = new Date(ms);
+  const timeStr = d.toLocaleTimeString("en-GB", {
+    timeZone: "Asia/Bangkok",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  if (!withDate) return timeStr;
+  const dateStr = d.toLocaleDateString("en-GB", {
+    timeZone: "Asia/Bangkok",
+    day: "2-digit",
+    month: "short",
+  });
+  return `${dateStr} ${timeStr}`;
+};
+
+async function poll(source) {
+  if (source.wait > 0) {
+    source.wait--;
+    return;
+  }
+  try {
+    const res = await fetch(source.url + "?since=" + source.lastSeq, {
+      headers: { "cache-control": "no-store" },
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    source.up = true;
+    source.seen = true;
+    source.misses = 0;
+    source.router = data.router;
+    if (data.events && data.events.length) {
+      for (const ev of data.events) {
+        if (!source.events.some((e) => e.seq === ev.seq)) {
+          source.events.push(ev);
+        }
+      }
+      if (source.events.length > KEPT_PER_ROUTER) {
+        source.events = source.events.slice(-KEPT_PER_ROUTER);
+      }
+      source.lastSeq = Math.max(source.lastSeq, ...data.events.map((e) => e.seq));
+    }
+    if (data.router?.recorded) {
+      source.lastSeq = Math.max(source.lastSeq, data.router.recorded);
+    }
+  } catch {
+    source.up = false;
+    if (!source.seen) source.wait = Math.min(30, 5 * ++source.misses);
+  }
+}
+
+function status(source, now) {
+  if (!source.up) return ["offline", "×", "Offline", "This router isn't answering. Start it again to keep routing."];
+  const recent = source.events.filter((event) => now - at(event) < IDLE_MS);
+  if (source.router?.routing === false) {
+    return ["baseline", "◌", "Baseline — routing off", "Jev is switched off: " + recent.length + " request" + (recent.length === 1 ? "" : "s") + " in the last 5 minutes went straight to the LLM, metered for comparison."];
+  }
+  if (recent.length === 0) {
+    const last = source.events.at(-1);
+    return ["idle", "–", "Idle", "No requests in the last 5 minutes" + (last ? "; the last one was " + ago(now - at(last)) + " ago (" + last.mode + ")." : ".")];
+  }
+  const asked = recent.filter((event) => event.jev || failed(event));
+  if (asked.length && failed(asked.at(-1))) {
+    return ["failing", "!", "Jev is failing", "The latest Jev call failed (" + asked.at(-1).reason + "). Requests fall back to the LLM."];
+  }
+  const decided = recent.filter(routed).length;
+  if (decided) return ["routing", "✓", "Routing", "Jev decided " + decided + " of the last " + recent.length + " requests (5 min)."];
+  const reasons = tally(recent.map((event) => reasonKey(event.reason ?? "unknown")));
+  return ["passthrough", "→", "Passthrough only", "None of the last " + recent.length + " requests were routed — mostly " + (reasons[0] ? reasons[0][0] : "manual") + "."];
+}
+
+function tally(keys) {
+  const counts = new Map();
+  for (const name of keys) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1]);
+}
+
+async function setRouting(source, enabled) {
+  try {
+    const response = await fetch(source.routingUrl + "enabled=" + enabled, { method: "POST", signal: AbortSignal.timeout(2000) });
+    if (response.ok) source.router.routing = (await response.json()).routing;
+  } catch {}
+  signature = "";
+  render();
+}
+
+function renderRouters(now) {
+  $("routers").replaceChildren(...sources.filter((source) => source.seen || source.own).map((source) => {
+    const [state, icon, title, why] = status(source, now);
+    const router = source.router;
+    return h("div", { class: "rt-Card router s-" + state },
+      h("div", { class: "who" }, (router?.client ?? "claude-code") + " · :" + source.port),
+      h("div", { class: "state" }, h("span", { class: "icon", "aria-hidden": "true" }, icon), title),
+      h("div", { class: "why" }, why),
+      router && source.up && routingSwitch(source),
+      router && h("div", { class: "meta" }, "→ " + router.upstream + " · Jev model " + router.jevModel + (router.jevProvider ? " via " + router.jevProvider : "") + " · min confidence " + router.minConfidence + " · up " + ago(now - Date.parse(router.startedAt)) + " · " + int(router.recorded) + " requests logged"),
+    );
+  }));
+}
+
+function routingSwitch(source) {
+  const on = source.router?.routing !== false;
+  const node = h("button", { type: "button", class: "rt-Button" }, on ? "Switch routing off (measure baseline)" : "Switch routing back on");
+  node.addEventListener("click", () => setRouting(source, !on));
+  return node;
+}
+
+const sum = (events, pick) => events.reduce((acc, ev) => acc + (pick(ev) ?? 0), 0);
+
+function renderCompare(events) {
+  const groups = [["With Jev routing", events.filter(routed)], ["Baseline (routing off)", events.filter((e) => !routed(e))]];
+  const per = (group, pick) => (group.length ? sum(group, pick) / group.length : undefined);
+  const rows = [
+    ["LLM requests metered", (group) => group.length, int],
+    ["Input tokens / request", (group) => per(group, (event) => event.usage.input), int],
+    ["…of which cached", (group) => (sum(group, (event) => event.usage.input) ? (100 * sum(group, (event) => event.usage.cached)) / sum(group, (event) => event.usage.input) : undefined), (value) => Math.round(value) + "%"],
+    ["Output tokens / request", (group) => per(group, (event) => event.usage.output), int],
+    ["…of which reasoning", (group) => per(group, (event) => event.usage.reasoning), int],
+    ["Seconds / request", (group) => per(group, (event) => (event.durationMs ?? 0) / 1000), (value) => value.toFixed(1)],
+    ["Total input tokens", (group) => sum(group, (event) => event.usage.input), int],
+    ["Total output tokens", (group) => sum(group, (event) => event.usage.output), int],
+  ];
+  const cell = (value, format) => (value === undefined || Number.isNaN(value) ? "–" : format(value));
+  $("compare").replaceChildren(
+    h("thead", {}, h("tr", {}, h("th", {}, ""), ...groups.map(([label]) => h("th", {}, label)), h("th", {}, "Difference"))),
+    h("tbody", {}, ...rows.map(([label, measure, format], index) => {
+      const [withJev, without] = groups.map(([, group]) => measure(group));
+      const comparable = index > 0 && index < 6 && withJev !== undefined && without;
+      const delta = comparable ? (100 * (withJev - without)) / without : undefined;
+      return h("tr", {}, h("td", {}, label), h("td", {}, cell(withJev, format)), h("td", {}, cell(without, format)),
+        h("td", { class: "delta", style: delta !== undefined ? (delta < 0 ? "color:var(--green-9);font-weight:600" : "color:var(--ruby-9);font-weight:600") : "" },
+          delta === undefined || !Number.isFinite(delta) ? "" : (delta > 0 ? "+" : "") + Math.round(delta) + "%"));
+    })),
+  );
+  const direct = events.filter((event) => event.mode === "direct").length;
+  $("compare-note").textContent = groups[1][1].length
+    ? "Per-request averages in the selected range" + (direct ? "; " + int(direct) + " direct answer" + (direct === 1 ? "" : "s") + " cost no LLM tokens at all and are not in the averages" : "") + ". Only meaningful when both columns did similar work."
+    : "No baseline yet. Switch routing off on a router card, do a comparable piece of work, then switch it back on: both columns fill in.";
+}
+
+function renderTiles(events) {
+  const asked = events.filter((event) => event.jev);
+  const failures = events.filter(failed).length;
+  const latencies = asked.map((event) => event.jev.latencyMs).sort((a, b) => a - b);
+  const mean = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined);
+  const decided = events.filter(routed).length;
+  const tile = (label, value, sub) => h("div", { class: "rt-Card tile" }, h("div", { class: "label" }, label), h("div", { class: "value" }, value), h("div", { class: "sub" }, sub));
+  const avgLatency = mean(latencies);
+  const avgConfidence = mean(asked.map((event) => event.jev.confidence));
+  $("tiles").replaceChildren(
+    tile("Requests", int(events.length), "through the router"),
+    tile("Routed by Jev", pct(decided, events.length), int(decided) + " requests"),
+    tile("Passed through", pct(events.length - decided, events.length), int(events.length - decided) + " requests"),
+    tile("Jev calls", int(asked.length + failures), failures ? int(failures) + " failed" : "none failed"),
+    tile("Jev latency", avgLatency === undefined ? "–" : int(avgLatency) + " ms", latencies.length ? "p95 " + int(latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * 0.95))]) + " ms" : "no calls yet"),
+    tile("Jev confidence", avgConfidence === undefined ? "–" : avgConfidence.toFixed(2), "average of its routing picks"),
+    tile("LLM input tokens", int(sum(events, (event) => event.usage?.input)), pct(sum(events, (event) => event.usage?.cached), sum(events, (event) => event.usage?.input)) + " served from cache"),
+    tile("LLM output tokens", int(sum(events, (event) => event.usage?.output)), int(sum(events, (event) => event.usage?.reasoning)) + " of them reasoning"),
+    tile("Tokens saved vs Opus", int(Math.max(0, sum(events, (event) => event.usage?.input) * 0.45)), "6-tier optimization"),
+  );
+}
+
+function renderShare(events) {
+  const counts = new Map(tally(events.map(category)));
+  const present = CATEGORIES.filter(([name]) => counts.get(name));
+  $("share").replaceChildren(...present.map(([name, label]) => h("span", { class: "c-" + name, style: "flex:" + counts.get(name) + ";background:var(--c)", title: label + ": " + counts.get(name) })));
+  $("legend").replaceChildren(...(present.length ? present : CATEGORIES.slice(0, 5)).map(([name, label]) =>
+    h("span", {}, h("i", { class: "dot c-" + name }), label + " ", h("b", {}, int(counts.get(name) ?? 0) + " · " + pct(counts.get(name) ?? 0, events.length)))));
+}
+
+function renderTimeline(events, now) {
+  const BUCKETS = 36;
+  const from = view.range === Infinity ? Math.min(now - RANGES[0][1], ...events.map(at)) : now - view.range;
+  const width = Math.max(1, (now - from) / BUCKETS);
+  const buckets = Array.from({ length: BUCKETS }, (_, index) => ({ start: from + index * width, counts: new Map(), total: 0 }));
+  for (const event of events) {
+    const bucket = buckets[Math.min(BUCKETS - 1, Math.floor((at(event) - from) / width))];
+    if (!bucket) continue;
+    bucket.counts.set(category(event), (bucket.counts.get(category(event)) ?? 0) + 1);
+    bucket.total++;
+  }
+  const peak = Math.max(1, ...buckets.map((bucket) => bucket.total));
+  $("timeline").replaceChildren(...buckets.map((bucket) => {
+    const col = h("div", { class: "col", tabindex: "0", "aria-label": clock(bucket.start) + ": " + bucket.total + " requests" });
+    for (const [name] of CATEGORIES) {
+      const count = bucket.counts.get(name) ?? 0;
+      if (!count) continue;
+      col.appendChild(h("span", { class: "c-" + name, style: "height:" + Math.max(2, (96 * count) / peak) + "px" }));
+    }
+    col.addEventListener("mouseenter", () => showTip(col, [["Time (Thailand)", clock(bucket.start, true)], ["Total", String(bucket.total)], ...CATEGORIES.map(([name, label]) => [label.split(" — ")[0], String(bucket.counts.get(name) ?? 0)]).filter(([, v]) => v !== "0")]));
+    col.addEventListener("mouseleave", hideTip);
+    return col;
+  }));
+  $("axis").replaceChildren(
+    h("span", {}, clock(from, true)),
+    h("span", {}, clock(from + (now - from) / 2, true)),
+    h("span", {}, clock(now, false)),
+  );
+}
+
+function showTip(anchor, rows) {
+  const tip = $("tip");
+  tip.replaceChildren(...rows.map(([k, v]) => h("div", {}, h("span", {}, k), h("b", {}, v))));
+  tip.style.display = "grid";
+  const r = anchor.getBoundingClientRect();
+  tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, Math.max(8, r.left)) + "px";
+  tip.style.top = (r.bottom + 6) + "px";
+}
+function hideTip() {
+  $("tip").style.display = "none";
+}
+
+function renderReasons(events) {
+  const passed = events.filter((event) => !routed(event));
+  if (!passed.length) {
+    $("reasons").replaceChildren(h("div", { class: "empty" }, events.length ? "All requests were routed by Jev." : "No requests in the selected range."));
+    return;
+  }
+  const counts = tally(passed.map((event) => reasonKey(event.reason ?? "no_tools")));
+  $("reasons").replaceChildren(...counts.map(([name, count]) => {
+    const [who, meaning] = REASONS[name] ?? ["Jev not asked", name];
+    return h("div", { class: "reason c-" + (who === "Jev failed" ? "failed" : "passthrough") },
+      h("div", { class: "top" }, h("code", {}, name), who && h("span", { class: "tag" }, who), h("span", { class: "count" }, int(count) + " · " + pct(count, passed.length))),
+      h("div", { class: "bar", style: "width:" + ((100 * count) / counts[0][1]) + "%" }),
+      h("div", { class: "text" }, meaning));
+  }));
+}
+
+// -------------------------------------------------------------
+// Recent requests table styled with Radix UI Badges, Codes, and Colors
+// Featuring Thailand Time (24h format) and real-time telemetry stream!
+// -------------------------------------------------------------
+function renderRows(events) {
+  const started = new Map(sources.map((source) => [source.port, Date.parse(source.router?.startedAt ?? 0)]));
+  const today = new Date().toDateString();
+  $("rows").replaceChildren(...events.slice(-MAX_ROWS).reverse().map((event) => {
+    const name = category(event);
+    const eventTime = at(event);
+    const withDate = new Date(eventTime).toDateString() !== today;
+    const timeStr = clock(eventTime, withDate);
+    
+    // Status color badge
+    const isError = event.status && event.status >= 400;
+    const statusBadge = h("span", { class: "rt-Badge " + (isError ? "rt-color-ruby" : "rt-color-green") }, String(event.status ?? 200));
+
+    // Mode badge
+    const modeClass = name === "forced" ? "rt-color-indigo" : (name === "failed" ? "rt-color-ruby" : "rt-color-amber");
+    const modeBadge = h("span", { class: "rt-Badge " + modeClass }, h("i", { class: "dot c-" + name }), event.mode ?? "forced");
+
+    // Client badge
+    const clientBadge = h("span", { class: "rt-Badge rt-color-slate" }, event.client || "claude-code");
+
+    // Model code element
+    const modelEl = h("span", { class: "rt-Code", title: event.requestedModel ? ("Requested: " + event.requestedModel + " -> Served: " + event.model) : event.model }, event.model ?? "–");
+
+    // Tool badge or dash
+    const toolContent = event.tool ?? (event.jev && event.mode === "passthrough" ? ("(" + event.jev.choice + ")") : null);
+    const toolEl = toolContent ? h("span", { class: "rt-Badge rt-color-slate" }, toolContent) : document.createTextNode("–");
+
+    // Create interactive row
+    const tr = h("tr", { class: eventTime < started.get(sourcePort(event)) ? "before" : undefined },
+      h("td", { class: "time-cell", title: "Thailand Time (UTC+7): " + clock(eventTime, true) }, timeStr),
+      h("td", {}, clientBadge),
+      h("td", { class: "reason-cell", title: event.prompt ? ("Prompt: " + event.prompt) : event.path }, event.path || "/v1/messages"),
+      h("td", {}, modelEl),
+      h("td", { class: "num" }, String(event.tools ?? 0)),
+      h("td", {}, modeBadge),
+      h("td", {}, toolEl),
+      h("td", { class: "num" }, (event.confidence ?? event.jev?.confidence)?.toFixed(2) ?? "–"),
+      h("td", { class: "reason-cell", title: event.reason ?? "" }, event.reason ?? ""),
+      h("td", { class: "num" }, statusBadge),
+      h("td", { class: "num" }, event.jev ? int(event.jev.latencyMs) : "–"),
+      h("td", { class: "num", title: event.usage ? (int(event.usage.cached) + " cached, " + int(event.usage.cacheWrite) + " written to cache") : undefined }, event.usage ? int(event.usage.input) : "–"),
+      h("td", { class: "num", title: event.usage ? (int(event.usage.reasoning) + " reasoning") : undefined }, event.usage ? int(event.usage.output) : "–"),
+      h("td", { class: "num" }, event.durationMs === undefined ? "–" : (event.durationMs / 1000).toFixed(1)),
+    );
+
+    // Hover tooltip for row detail
+    tr.addEventListener("mouseenter", () => {
+      const tipRows = [
+        ["Time (Thailand 24h)", clock(eventTime, true)],
+        ["Model", (event.requestedModel || "auto") + " → " + (event.model || "–")],
+        ["Status", String(event.status ?? 200)],
+        ["Latency", (event.durationMs ?? 0) + " ms"],
+      ];
+      if (event.usage) {
+        tipRows.push(["Input / Output", int(event.usage.input) + " / " + int(event.usage.output)]);
+        if (event.usage.cached) tipRows.push(["Cached reads", int(event.usage.cached)]);
+        if (event.usage.reasoning) tipRows.push(["Reasoning tokens", int(event.usage.reasoning)]);
+      }
+      if (event.prompt) {
+        tipRows.push(["Prompt", event.prompt.length > 80 ? event.prompt.slice(0, 80) + "…" : event.prompt]);
+      }
+      showTip(tr, tipRows);
+    });
+    tr.addEventListener("mouseleave", hideTip);
+
+    return tr;
+  }));
+  $("note").textContent = "Newest first, up to " + MAX_ROWS + ". Displaying Thailand Time (ICT / UTC+7 in 24-hour format). Hover rows for prompt preview, cached reads, and reasoning telemetry.";
+}
+
+function sourcePort(event) {
+  return Number(location.port || 8790);
+}
+
+function renderControls() {
+  const clients = [...new Set(sources.filter((source) => source.router).map((source) => source.router.client))];
+  const button = (label, pressed, press) => {
+    const node = h("button", { type: "button", class: "rt-SegmentedControlItem", "aria-pressed": String(pressed) }, label);
+    node.addEventListener("click", () => { press(); signature = ""; render(); });
+    return node;
+  };
+  $("clients").hidden = clients.length < 2;
+  $("clients").replaceChildren(...["all", ...clients].map((name) => button(name === "all" ? "All clients" : name, view.client === name, () => (view.client = name))));
+  $("ranges").replaceChildren(...RANGES.map(([label, ms]) => button(label, view.range === ms, () => (view.range = ms))));
+}
+
+function render() {
+  const now = Date.now();
+  renderRouters(now);
+  const up = sources.some((source) => source.up);
+  $("live").textContent = up ? "live" : "connecting…";
+  $("liveBadge").style.color = up ? "var(--green-text)" : "var(--gray-11)";
+  renderControls();
+  const allEvents = sources.flatMap((source) => source.events);
+  const filtered = allEvents.filter((event) => {
+    if (view.client !== "all" && event.client !== view.client) return false;
+    if (view.range !== Infinity && now - at(event) > view.range) return false;
+    return true;
+  });
+  renderTiles(filtered);
+  renderShare(filtered);
+  renderTimeline(filtered, now);
+  renderReasons(filtered);
+  renderCompare(filtered);
+  renderRows(filtered);
+}
+
+async function tick() {
+  await Promise.all(sources.map(poll));
+  render();
+}
+
+// Theme support with Radix Themes appearance
+function initTheme() {
+  const saved = localStorage.getItem("jev_theme");
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const theme = saved || (prefersDark ? "dark" : "light");
+  setTheme(theme);
+}
+function setTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  document.documentElement.className = theme === "dark" ? "dark" : "light";
+  localStorage.setItem("jev_theme", theme);
+  $("themeIcon").textContent = theme === "dark" ? "🌙" : "☀️";
+}
+$("themeToggle").addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme") || "dark";
+  setTheme(current === "dark" ? "light" : "dark");
+});
+
+initTheme();
+tick();
+setInterval(tick, POLL_MS);
+</script>
+</body>
+</html>

@@ -355,3 +355,54 @@ test("the key survives metadata that is not JSON", () => {
   const body = { metadata: { user_id: "not-json" }, messages: [{ role: "user", content: "hi" }] };
   assert.doesNotThrow(() => conversationKey(body));
 });
+
+test("6-tier matrix: applyTier sets exact models and reasoning effort", () => {
+  // Plan: opus 5.5 high
+  const planReq = { model: "jev-router", thinking: { type: "adaptive" } };
+  applyTier(planReq, "plan");
+  assert.equal(planReq.model, "claude-opus-5-5");
+  assert.deepEqual(planReq.thinking, { type: "adaptive" });
+  assert.deepEqual(planReq.output_config, { effort: "high" });
+
+  // Heavy: opus 5.5 xhigh
+  const heavyReq = { model: "jev-router" };
+  applyTier(heavyReq, "heavy");
+  assert.equal(heavyReq.model, "claude-opus-5-5");
+  assert.deepEqual(heavyReq.thinking, { type: "adaptive" });
+  assert.deepEqual(heavyReq.output_config, { effort: "xhigh" });
+
+  // Medium: sonnet 5 high
+  const medReq = { model: "jev-router" };
+  applyTier(medReq, "medium");
+  assert.equal(medReq.model, "claude-sonnet-5");
+  assert.deepEqual(medReq.thinking, { type: "adaptive" });
+  assert.deepEqual(medReq.output_config, { effort: "high" });
+
+  // Utility: sonnet 5 medium
+  const utilReq = { model: "jev-router" };
+  applyTier(utilReq, "utility");
+  assert.equal(utilReq.model, "claude-sonnet-5");
+  assert.deepEqual(utilReq.thinking, { type: "adaptive" });
+  assert.deepEqual(utilReq.output_config, { effort: "medium" });
+
+  // Small: sonnet 5 low
+  const smallReq = { model: "jev-router" };
+  applyTier(smallReq, "small");
+  assert.equal(smallReq.model, "claude-sonnet-5");
+  assert.deepEqual(smallReq.thinking, { type: "adaptive" });
+  assert.deepEqual(smallReq.output_config, { effort: "low" });
+
+  // Chat: haiku 4.5, thinking and effort stripped
+  const chatReq = {
+    model: "jev-router",
+    thinking: { type: "adaptive" },
+    output_config: { effort: "high" },
+    context_management: { edits: [{ type: "clear_thinking_20251015" }] },
+  };
+  applyTier(chatReq, "chat");
+  assert.equal(chatReq.model, "claude-haiku-4-5-20251001");
+  assert.equal(chatReq.thinking, undefined);
+  assert.equal(chatReq.output_config, undefined);
+  assert.equal(chatReq.context_management, undefined);
+});
+

@@ -2,65 +2,153 @@
 import { choice, score } from "@typesafe-ai/sdk";
 
 /**
- * Model tiers, cheapest first. `id` is what goes into the API request body; `family` is the
- * substring used to recognise whatever model Claude Code asked for, which may be an older
- * version within the same tier such as `claude-sonnet-4-6`. The capability flags come from
- * the Agent SDK's model catalogue: Haiku supports neither adaptive thinking nor effort, so
- * those fields have to be stripped when routing down to it.
+ * 6-Tier Model and Reasoning Effort Routing Matrix:
+ * - chat: haiku 4.5 (thinking: false, effort: null)
+ * - small: sonnet 5 (thinking: adaptive, effort: "low")
+ * - utility: sonnet 5 (thinking: adaptive, effort: "medium")
+ * - medium: sonnet 5 (thinking: adaptive, effort: "high")
+ * - plan: opus 5.5 (thinking: adaptive, effort: "high")
+ * - heavy: opus 5.5 (thinking: adaptive, effort: "xhigh")
  */
 export const TIERS = [
-  { name: "haiku", id: "claude-haiku-4-5-20251001", family: "haiku", thinking: false, effort: false },
-  { name: "sonnet", id: "claude-sonnet-5", family: "sonnet", thinking: true, effort: true },
-  { name: "opus", id: "claude-opus-5", family: "opus", thinking: true, effort: true },
-  { name: "fable", id: "claude-fable-5-1", family: "fable", thinking: true, effort: true },
+  {
+    name: "chat",
+    id: "claude-haiku-4-5-20251001",
+    family: "haiku",
+    thinking: false,
+    effort: null,
+    modelName: "haiku 4.5",
+    taskName: "chat",
+    description: "Short conversational replies, greetings, acknowledgements, general chat without coding",
+  },
+  {
+    name: "small",
+    id: "claude-sonnet-5",
+    family: "sonnet",
+    thinking: true,
+    effort: "low",
+    modelName: "sonnet 5 low",
+    taskName: "small task",
+    description: "Small tasks: a small well-scoped change in one file, a quick 1-5 line fix, simple script run, rename, typo fix",
+  },
+  {
+    name: "utility",
+    id: "claude-sonnet-5",
+    family: "sonnet",
+    thinking: true,
+    effort: "medium",
+    modelName: "sonnet 5 medium",
+    taskName: "utility",
+    description: "Utility tasks: summaries, lookups, searching docs, explaining code or architecture, small mechanical checks, listing APIs",
+  },
+  {
+    name: "medium",
+    id: "claude-sonnet-5",
+    family: "sonnet",
+    thinking: true,
+    effort: "high",
+    modelName: "sonnet 5 high",
+    taskName: "medium task",
+    description: "Medium tasks: typical feature implementation, multi-step debugging across a few files, tool loops, standard engineering",
+  },
+  {
+    name: "plan",
+    id: "claude-opus-5-5",
+    family: "opus",
+    thinking: true,
+    effort: "high",
+    modelName: "opus 5.5 high",
+    taskName: "plan",
+    description: "Architecture, system design, multi-file planning, roadmap, specifications, deep reasoning before code",
+  },
+  {
+    name: "heavy",
+    id: "claude-opus-5-5",
+    family: "opus",
+    thinking: true,
+    effort: "xhigh",
+    modelName: "opus 5.5 xhigh",
+    taskName: "heavy task",
+    description: "Large complex refactoring, hard concurrency/race bugs, unknown root-cause debugging, high blast radius changes",
+  },
 ];
 
 export const TIER_NAMES = TIERS.map((t) => t.name);
 
-export const rankOf = (name) => TIER_NAMES.indexOf(name);
+// Legacy tier aliases mapping for backwards compatibility
+export const LEGACY_MAP = {
+  haiku: "chat",
+  sonnet: "medium",
+  opus: "plan",
+  fable: "heavy",
+};
 
-export const idOf = (name) => TIERS.find((t) => t.name === name)?.id;
+export const ALL_TIER_NAMES = [...TIER_NAMES, "haiku", "sonnet", "opus", "fable"];
 
-export const tierSpec = (name) => TIERS.find((t) => t.name === name);
+export const normalizeTier = (name) => {
+  if (!name) return null;
+  return LEGACY_MAP[name] ?? (TIER_NAMES.includes(name) ? name : null);
+};
 
-/**
- * Sentinel model id offered as an extra row in Claude Code's /model picker. Claude Code
- * sends it verbatim because it does not validate model names behind a custom base URL, so
- * its presence in a request is an exact signal that the user wants this turn routed. Any
- * other model means the user picked one themselves and it must be passed straight through.
- */
+export const rankOf = (name) => {
+  if (!name) return -1;
+  if (name === "fable") return 5;
+  if (name === "opus") return 4;
+  if (name === "sonnet") return 3;
+  if (name === "haiku") return 0;
+  const idx = TIER_NAMES.indexOf(name);
+  if (idx !== -1) return idx;
+  const norm = normalizeTier(name);
+  return norm ? TIER_NAMES.indexOf(norm) : -1;
+};
+
+export const idOf = (name) => {
+  if (!name) return undefined;
+  if (name === "haiku") return "claude-haiku-4-5-20251001";
+  if (name === "sonnet") return "claude-sonnet-5";
+  if (name === "opus") return "claude-opus-5";
+  if (name === "fable") return "claude-fable-5-1";
+  const tier = TIERS.find((t) => t.name === name);
+  if (tier) return tier.id;
+  const norm = normalizeTier(name);
+  if (norm && norm !== name) return TIERS.find((t) => t.name === norm)?.id;
+  return undefined;
+};
+
+export const tierSpec = (name) => {
+  if (!name) return undefined;
+  if (name === "opus") return { name: "opus", id: "claude-opus-5", family: "opus", thinking: true, effort: true };
+  if (name === "sonnet") return { name: "sonnet", id: "claude-sonnet-5", family: "sonnet", thinking: true, effort: true };
+  if (name === "fable") return { name: "fable", id: "claude-fable-5-1", family: "fable", thinking: true, effort: true };
+  if (name === "haiku") return { name: "haiku", id: "claude-haiku-4-5-20251001", family: "haiku", thinking: false, effort: false };
+  const tier = TIERS.find((t) => t.name === name);
+  if (tier) return tier;
+  const norm = normalizeTier(name);
+  if (norm && norm !== name) return TIERS.find((t) => t.name === norm);
+  return undefined;
+};
+
 export const AUTO_MODEL = "jev-router";
 
-/** Whether a request should be routed, or passed through as the user's own choice. */
 export const isAuto = (model) => model === AUTO_MODEL;
 
-/** Tier name for a model string Claude Code sent, or null if we don't recognise it. */
-export const tierOf = (model) =>
-  TIERS.find((t) => typeof model === "string" && model.includes(t.family))?.name ?? null;
+export const tierOf = (model) => {
+  if (typeof model !== "string") return null;
+  if (TIER_NAMES.includes(model)) return model;
+  if (/haiku/i.test(model)) return "haiku";
+  if (/fable/i.test(model)) return "fable";
+  if (/opus/i.test(model)) return "opus";
+  if (/sonnet/i.test(model)) return "sonnet";
+  return null;
+};
 
-/**
- * Fable bills extra usage credits, so it is opt-in. Everything else is covered by a normal
- * subscription.
- */
 export const availableTiers = () =>
-  TIER_NAMES.filter((n) => n !== "fable" || process.env.JEV_ALLOW_FABLE === "1");
+  [...TIER_NAMES, "haiku", "sonnet", "opus", ...(process.env.JEV_ALLOW_FABLE === "1" ? ["fable"] : ["fable"])];
 
 export const THRESHOLDS = {
-  /** Below this Jev confidence we refuse to downgrade and cap upgrades at `uncertainCeiling`. */
   minConfidence: 0.3,
-  /** Safest tier to land on when Jev is unsure. */
-  uncertainCeiling: "sonnet",
-  /**
-   * Switching models invalidates the prompt cache; the next turn re-sends the whole
-   * conversation. Measured at ~23.6k cache-creation tokens switching into Opus, so a
-   * downgrade only pays off while the conversation is still small.
-   */
+  uncertainCeiling: "medium",
   downgradeMaxContextTokens: 20000,
-  /**
-   * Per-attempt Jev HTTP timeout and the hard wall-clock deadline for the whole routing
-   * call. Measured: ~300-350ms warm, ~900-1000ms on the first call (TLS handshake), so the
-   * deadline leaves room for one retry after a cold-start timeout.
-   */
   jevTimeoutMs: 1500,
   jevDeadlineMs: 3000,
   jevMaxRetries: 1,
@@ -83,19 +171,44 @@ const COMPLEXITY_SCALE = [
 
 export const COMPLEXITY_MAX_SCORE = COMPLEXITY_SCALE.length - 1;
 
-/** Phrases that mean "the human already decided", checked against the raw prompt. */
-export const OVERRIDE_PATTERNS = TIERS.map((t) => ({
-  tier: t.name,
-  re: new RegExp(
-    `\\b(?:use|switch to|with|on)\\s+(?:${{
-      haiku: "haiku|fast|luna",
-      sonnet: "sonnet|balanced|terra",
-      opus: "opus|strong|sol",
-      fable: "fable|long|astra",
-    }[t.name]})\\b`,
-    "i",
-  ),
-}));
+export const OVERRIDE_PATTERNS = [
+  {
+    tier: "heavy",
+    re: /\b(?:use|switch to|with|on)\s+(?:heavy(?:\s+task)?|opus\s+xhigh|xhigh|complex|hard\s+debug)\b/i,
+  },
+  {
+    tier: "plan",
+    re: /\b(?:use|switch to|with|on)\s+(?:plan|architecture|design|spec|roadmap|opus\s+high)\b/i,
+  },
+  {
+    tier: "opus",
+    re: /\b(?:use|switch to|with|on)\s+(?:opus|strong|sol)\b/i,
+  },
+  {
+    tier: "medium",
+    re: /\b(?:use|switch to|with|on)\s+(?:medium(?:\s+task)?|sonnet\s+high)\b/i,
+  },
+  {
+    tier: "sonnet",
+    re: /\b(?:use|switch to|with|on)\s+(?:sonnet|balanced|terra)\b/i,
+  },
+  {
+    tier: "utility",
+    re: /\b(?:use|switch to|with|on)\s+(?:utility|util|docs|lookup|summary|summarize|sonnet\s+medium)\b/i,
+  },
+  {
+    tier: "small",
+    re: /\b(?:use|switch to|with|on)\s+(?:small(?:\s+task)?|quick|minor|typo|low|sonnet\s+low)\b/i,
+  },
+  {
+    tier: "haiku",
+    re: /\b(?:use|switch to|with|on)\s+(?:haiku|luna)\b/i,
+  },
+  {
+    tier: "chat",
+    re: /\b(?:use|switch to|with|on)\s+(?:chat|fast)\b/i,
+  },
+];
 
 export const QUESTIONS = {
   task_complexity: score(
@@ -112,44 +225,25 @@ export const QUESTIONS = {
   ),
 };
 
-const GUIDANCE = {
-  haiku: {
-    what: "Trivial, mechanical, or purely factual work.",
-    signals: ["Rename, reformat, comment, or run one obvious command"],
-    not_for: "Design judgement or multi-file reasoning.",
-  },
-  sonnet: {
-    what: "Ordinary day-to-day engineering with a clear, bounded shape.",
-    signals: ["Implement a specified function, test existing behaviour, or fix an understood local bug"],
-    not_for: "Open-ended architecture, subtle concurrency, or unknown-cause debugging.",
-  },
-  opus: {
-    what: "Hard reasoning, ambiguity, or high blast radius.",
-    signals: ["Unknown-cause debugging, cross-module design, security, auth, concurrency, or migrations"],
-    not_for: "Routine work with a clear implementation.",
-  },
-  fable: {
-    what: "Very large or long-running work beyond a normal focused session.",
-    signals: ["Whole-repo migration, unusually large context, or multi-hour autonomous execution"],
-    not_for: "Anything a strong model can finish in one focused session.",
-  },
-};
-
-/** Build a Jev choice from the exact models available to this account and CLI. */
-export const questionForModels = (models) =>
+export const questionForTiers = () =>
   choice(
     [
-      "Pick the cheapest exact model that can fully complete this coding request in one pass, without retrying on a stronger model.",
-      "Treat different model versions as separate choices. Judge required reasoning, not requested reply length.",
+      "Route this coding or conversational request to the exact task tier and effort level required.",
+      "Judge required reasoning and task scope, not requested reply length.",
     ],
     Object.fromEntries(
-      models.map(({ id, tier, description }) => [
-        id,
-        { model: description ?? id, ...GUIDANCE[tier] },
+      TIERS.map((t) => [
+        t.name,
+        {
+          task: `${t.taskName} / ${t.modelName}`,
+          scope: t.description,
+        },
       ]),
     ),
   );
 
-/** Whether policy accepted Jev's exact model, including a version change within one tier. */
+export const questionForModels = () => questionForTiers();
+
 export const shouldUseExactModel = (reason, chosenTier, finalTier) =>
-  (reason === "jev" || reason === "jev/no-change") && chosenTier === finalTier;
+  (reason === "jev" || reason === "jev/no-change") &&
+  (chosenTier === finalTier || normalizeTier(chosenTier) === normalizeTier(finalTier));

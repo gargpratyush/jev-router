@@ -3,8 +3,9 @@ import {
   COMPLEXITY_MAX_SCORE,
   CONTEXT_WINDOW_TOKENS,
   QUESTIONS,
-  questionForModels,
+  questionForTiers,
   THRESHOLDS,
+  TIER_NAMES,
 } from "./config.mjs";
 import { log } from "./log.mjs";
 
@@ -30,7 +31,6 @@ function getClient() {
  * @returns {Promise<?{choice: string, confidence: number, probabilities: object, metrics: object, ms: number}>}
  */
 export async function askJev({ prompt, current, contextTokens, models }) {
-  if (!models?.length) return null;
   const started = Date.now();
   const abort = new AbortController();
   const deadline = setTimeout(() => abort.abort(), THRESHOLDS.jevDeadlineMs);
@@ -38,13 +38,13 @@ export async function askJev({ prompt, current, contextTokens, models }) {
     state: {
       request: prompt,
       session: { current_model: current, context_tokens: contextTokens },
-      environment: { available_models: models.map((model) => model.id) },
+      environment: { available_models: models?.map((m) => m.id) ?? TIER_NAMES },
     },
-    questions: { ...QUESTIONS, model: questionForModels(models) },
+    questions: { ...QUESTIONS, tier: questionForTiers() },
   };
   try {
     const result = await getClient().systemOne(request, { signal: abort.signal });
-    const { model: answer, task_complexity, reasoning_required, tool_complexity } = result.answers;
+    const { tier: answer, task_complexity, reasoning_required, tool_complexity } = result.answers;
     return {
       ...answer,
       request,

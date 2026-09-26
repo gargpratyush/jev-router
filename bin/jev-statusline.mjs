@@ -5,7 +5,18 @@ import { readStatus } from "../src/status.mjs";
 
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
-const COLOR = { haiku: "\x1b[32m", sonnet: "\x1b[36m", opus: "\x1b[35m", fable: "\x1b[33m" };
+const COLOR = {
+  chat: "\x1b[32m",    // green
+  small: "\x1b[34m",   // blue
+  utility: "\x1b[36m", // cyan
+  medium: "\x1b[33m",  // yellow
+  plan: "\x1b[35m",    // magenta
+  heavy: "\x1b[31m",   // red
+  haiku: "\x1b[32m",
+  sonnet: "\x1b[36m",
+  opus: "\x1b[35m",
+  fable: "\x1b[33m",
+};
 
 // A status line replaces Claude Code's footer hints, so echo the basics it stops showing.
 const chunks = [];
@@ -29,6 +40,7 @@ if (status?.manual) {
 } else if (status) {
   const color = COLOR[status.tier] ?? "";
   const p = status.confidence != null ? ` ${DIM}(p=${status.confidence.toFixed(2)})${RESET}` : "";
+  const effort = status.effort ? ` [${status.effort}]` : "";
   // Only name the reason when routing declined to do the obvious thing, so the common case
   // stays short and the interesting case explains itself.
   const held =
@@ -37,7 +49,7 @@ if (status?.manual) {
     status.reason !== "jev/no-change" &&
     !status.reason.includes("override");
   const why = held ? ` ${DIM}(${status.reason.split("/")[0]})${RESET}` : "";
-  routed = `${color}${status.model ?? status.tier}${RESET}${p}${why}`;
+  routed = `${color}${status.tier}: ${status.model ?? ""}${effort}${RESET}${p}${why}`;
 }
 
 process.stdout.write(`${routed} ${DIM}·${RESET} ${dir} ${DIM}· ${pct}% context${RESET}\n`);

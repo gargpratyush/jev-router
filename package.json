@@ -12,9 +12,12 @@
   "bin": {
     "jev-claude": "bin/jev-claude.mjs",
     "jev-codex": "bin/jev-codex.mjs",
-    "jev-explain": "bin/jev-explain.mjs"
+    "jev-dashboard": "bin/jev-dashboard.mjs",
+    "jev-explain": "bin/jev-explain.mjs",
+    "jev-history": "bin/jev-history.mjs"
   },
   "scripts": {
+    "dashboard": "node bin/jev-dashboard.mjs",
     "test": "node --test \"test/**/*.test.mjs\"",
     "prepublishOnly": "npm test"
   },
@@ -42,6 +45,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@typesafe-ai/sdk": "^0.6.0"
+    "@typesafe-ai/sdk": "^0.6.0",
+    "express": "^5.2.1"
   }
 }

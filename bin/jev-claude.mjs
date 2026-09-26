@@ -91,6 +91,12 @@ for (const file of [
  * installs are a `.cmd` shim, which Node still refuses to run without a shell.
  */
 function resolveClaude() {
+  const nativeBinary = "C:\\nvm4w\\nodejs\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe";
+  try {
+    accessSync(nativeBinary, constants.X_OK);
+    return { file: nativeBinary, shell: false };
+  } catch {}
+
   const win = process.platform === "win32";
   const exts = win ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";") : [""];
   for (const dir of (process.env.PATH ?? "").split(win ? ";" : ":")) {
