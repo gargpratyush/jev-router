@@ -6,20 +6,28 @@ import { choice, score } from "@typesafe-ai/sdk";
  * substring used to recognise whatever model Claude Code asked for, which may be an older
  * version within the same tier such as `claude-sonnet-4-6`. The capability flags come from
  * the Agent SDK's model catalogue: Haiku supports neither adaptive thinking nor effort, so
- * those fields have to be stripped when routing down to it.
+ * those fields have to be stripped when routing down to it. Haiku also rejects the 1M
+ * context beta that Claude Code sends for a `[1m]` model, so `longContext` marks where it goes.
  */
 export const TIERS = [
-  { name: "haiku", id: "claude-haiku-4-5-20251001", family: "haiku", thinking: false, effort: false },
-  { name: "sonnet", id: "claude-sonnet-5", family: "sonnet", thinking: true, effort: true },
-  { name: "opus", id: "claude-opus-5", family: "opus", thinking: true, effort: true },
-  { name: "fable", id: "claude-fable-5-1", family: "fable", thinking: true, effort: true },
+  { name: "haiku", id: "claude-haiku-4-5-20251001", family: "haiku", thinking: false, effort: false, longContext: false },
+  { name: "sonnet", id: "claude-sonnet-5", family: "sonnet", thinking: true, effort: true, longContext: true },
+  { name: "opus", id: "claude-opus-5", family: "opus", thinking: true, effort: true, longContext: true },
+  { name: "fable", id: "claude-fable-5-1", family: "fable", thinking: true, effort: true, longContext: true },
 ];
 
 export const TIER_NAMES = TIERS.map((t) => t.name);
 
 export const rankOf = (name) => TIER_NAMES.indexOf(name);
 
-export const idOf = (name) => TIERS.find((t) => t.name === name)?.id;
+/**
+ * Exact model a tier is pinned to via `JEV_<TIER>_MODEL`, such as `JEV_OPUS_MODEL`. A pin
+ * replaces every catalogue version of that tier, so Jev can no longer pick an older one.
+ * Read on every call because `jev-claude` loads its env files after this module is imported.
+ */
+export const pinnedModel = (name) => process.env[`JEV_${name.toUpperCase()}_MODEL`] || null;
+
+export const idOf = (name) => pinnedModel(name) ?? TIERS.find((t) => t.name === name)?.id;
 
 export const tierSpec = (name) => TIERS.find((t) => t.name === name);
 

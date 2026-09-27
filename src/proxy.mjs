@@ -6,6 +6,7 @@ import {
   TIERS,
   tierOf,
   idOf,
+  pinnedModel,
   availableTiers,
   tierSpec,
   isAuto,
@@ -51,10 +52,15 @@ export function sanitizeSchema(node) {
  * Jev on every tool call and let the model flip mid-task, so only the opening request of a
  * turn counts. Claude Code also injects `<system-reminder>` blocks into the user message,
  * which are noise to a router and measurably blunt Jev's confidence, so they are removed.
+ * Newer versions also append `system`-role messages (the environment block, SessionStart
+ * hook context) after the prompt, so those are skipped to reach the user's message.
  */
 export function newTurnPrompt(body) {
   if (!Array.isArray(body?.tools) || body.tools.length === 0) return null; // auxiliary call
-  const last = body?.messages?.[body.messages.length - 1];
+  const messages = body?.messages ?? [];
+  let end = messages.length - 1;
+  while (end >= 0 && messages[end]?.role === "system") end--;
+  const last = messages[end];
   if (!last || last.role !== "user") return null;
   let text;
   if (typeof last.content === "string") {
@@ -110,9 +116,15 @@ export function claudeModels(catalog = []) {
         model.max_input_tokens && `${model.max_input_tokens} input tokens`,
       ].filter(Boolean).join("; "),
     }));
-  return models.length
+  const found = models.length
     ? models
     : TIERS.map((tier) => ({ id: tier.id, tier: tier.name, description: tier.id }));
+  const pinned = TIERS.map((tier) => tier.name).filter((name) => pinnedModel(name));
+  if (!pinned.length) return found;
+  return [
+    ...found.filter((model) => !pinned.includes(model.tier)),
+    ...pinned.map((name) => ({ id: pinnedModel(name), tier: name, description: pinnedModel(name) })),
+  ];
 }
 
 const modelForTier = (models, tier) => models.find((model) => model.tier === tier)?.id ?? idOf(tier);
@@ -189,6 +201,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
     req.on("data", (c) => chunks.push(c));
     req.on("end", async () => {
       let out = Buffer.concat(chunks);
+      let longContext = true;
 
       if (/^\/v1\/messages/.test(req.url ?? "")) {
         try {
@@ -261,6 +274,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
             const model = state.model ?? idOf(tier);
             debug(`${key} rewrite ${body.model} -> ${model}`);
             applyTier(body, tier, model);
+            longContext = tierSpec(tier)?.longContext !== false;
             // Publish what went out. Claude Code's UI shows the row you picked, not the tier
             // it resolved to, so the status line is the only place this is visible.
             // `claude -p` omits metadata on the first request of a session, so there is no
@@ -281,6 +295,12 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
       const transport = target.protocol === "http:" ? http : https;
       const headers = { ...req.headers, host: target.host };
       delete headers["content-length"];
+      if (!longContext && typeof headers["anthropic-beta"] === "string") {
+        headers["anthropic-beta"] = headers["anthropic-beta"]
+          .split(",")
+          .filter((beta) => !beta.trim().startsWith("context-1m-"))
+          .join(",");
+      }
       if (req.method === "GET" && /^\/v1\/models(?:\?|$)/.test(req.url ?? "")) {
         delete headers["accept-encoding"];
       }

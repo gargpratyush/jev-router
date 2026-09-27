@@ -355,3 +355,93 @@ test("the key survives metadata that is not JSON", () => {
   const body = { metadata: { user_id: "not-json" }, messages: [{ role: "user", content: "hi" }] };
   assert.doesNotThrow(() => conversationKey(body));
 });
+
+test("reads the prompt past system messages appended after it", () => {
+  const body = withTools([
+    { role: "user", content: "fix the bug" },
+    { role: "system", content: [{ type: "text", text: "# Environment" }] },
+    { role: "system", content: "SessionStart hook additional context" },
+  ]);
+  assert.equal(newTurnPrompt(body), "fix the bug");
+});
+
+test("a tool_result before trailing system messages is still a continuation", () => {
+  const body = withTools([
+    { role: "user", content: "fix the bug" },
+    { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }] },
+    { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "done" }] },
+    { role: "system", content: "reminder" },
+  ]);
+  assert.equal(newTurnPrompt(body), null);
+});
+
+test("a pinned tier replaces every catalogue version of it", (t) => {
+  process.env.JEV_OPUS_MODEL = "claude-opus-5-5";
+  t.after(() => delete process.env.JEV_OPUS_MODEL);
+  assert.deepEqual(
+    claudeModels([
+      { id: "claude-opus-5", display_name: "Claude Opus 5" },
+      { id: "claude-opus-4-8", display_name: "Claude Opus 4.8" },
+      { id: "claude-sonnet-5", display_name: "Claude Sonnet 5" },
+    ]).map(({ id, tier }) => ({ id, tier })),
+    [
+      { id: "claude-sonnet-5", tier: "sonnet" },
+      { id: "claude-opus-5-5", tier: "opus" },
+    ],
+  );
+});
+
+test("a pinned tier is also the cold-start and fallback id", (t) => {
+  process.env.JEV_OPUS_MODEL = "claude-opus-5-5";
+  t.after(() => delete process.env.JEV_OPUS_MODEL);
+  assert.ok(claudeModels().some((model) => model.id === "claude-opus-5-5" && model.tier === "opus"));
+  assert.ok(!claudeModels().some((model) => model.id === "claude-opus-5"));
+  const body = { model: "jev-router" };
+  applyTier(body, "opus");
+  assert.equal(body.model, "claude-opus-5-5");
+});
+
+for (const [choice, tier, kept] of [
+  ["claude-haiku-4-5-20251001", "haiku", false],
+  ["claude-sonnet-5", "sonnet", true],
+]) {
+  test(`routing to ${tier} ${kept ? "keeps" : "drops"} the 1M context beta`, async (t) => {
+    const seen = [];
+    const upstream = http.createServer((req, res) => {
+      seen.push(req.headers["anthropic-beta"]);
+      req.on("data", () => {});
+      req.on("end", () => {
+        res.setHeader("content-type", "application/json");
+        res.end(`{"id":"msg_1","type":"message","model":"${choice}"}`);
+      });
+    });
+    await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    t.after(() => upstream.close());
+
+    const { port, close } = await startProxy({
+      upstreamURL: `http://127.0.0.1:${upstream.address().port}`,
+      route: async () => ({ choice, confidence: 0.99, ms: 1 }),
+    });
+    t.after(close);
+
+    await fetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "anthropic-beta": "claude-code-20250219,context-1m-2025-08-07,effort-2025-11-24",
+      },
+      body: JSON.stringify({
+        model: "jev-router",
+        tools: [{ name: "Bash" }],
+        messages: [{ role: "user", content: "rename foo to bar" }],
+      }),
+    });
+
+    assert.equal(
+      seen[0],
+      kept
+        ? "claude-code-20250219,context-1m-2025-08-07,effort-2025-11-24"
+        : "claude-code-20250219,effort-2025-11-24",
+    );
+  });
+}
