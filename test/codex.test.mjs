@@ -263,3 +263,59 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
   assert.equal(seen[3].body.model, "gpt-5.6-sol");
   assert.equal(readStatus(statusId).metrics.reasoningRequired, 0.91);
 });
+
+
+test("routed streams preserve UTF-8 split across upstream chunks", { timeout: 5000 }, async (t) => {
+  const first = 'event: response.created\ndata: {"type":"response.created","response":{"id":"r1"}}\n\n';
+  const delta = 'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"hello مرحبا 💡"}\n\n';
+  const bytes = Buffer.from(first + delta);
+  for (const cut of [bytes.indexOf(Buffer.from("hello")) + 2,
+                     bytes.indexOf(Buffer.from("مرحبا")) + 1,
+                     bytes.indexOf(Buffer.from("💡")) + 2]) {
+    await t.test(`split at byte ${cut}`, async (t) => {
+      let releaseTail;
+      const upstream = http.createServer((req, res) => {
+        req.resume();
+        req.on("end", () => {
+          res.writeHead(200, { "content-type": "text/event-stream" });
+          releaseTail = () => res.end(bytes.subarray(cut));
+          res.write(bytes.subarray(0, cut));
+        });
+      });
+      await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+      t.after(() => { upstream.closeAllConnections(); upstream.close(); });
+      const base = `http://127.0.0.1:${upstream.address().port}`;
+      const { port, close } = await startCodexProxy({
+        apiBaseURL: base,
+        route: async () => ({ choice: "gpt-5.6-sol", confidence: 0.99 }),
+      });
+      t.after(close);
+      const body = {
+        model: "jev-router",
+        input: [{ type: "additional_tools", role: "developer", tools: [] },
+                { role: "user", content: "Say hello in Arabic" }],
+      };
+      const result = await new Promise((resolve, reject) => {
+        const request = http.request(`http://127.0.0.1:${port}/responses`, {
+          method: "POST", headers: { "content-type": "application/json" },
+        }, (response) => {
+          const chunks = [];
+          response.on("data", (chunk) => {
+            chunks.push(chunk);
+            // Release the remaining bytes only after the first chunk traverses the proxy.
+            const finish = releaseTail;
+            releaseTail = null;
+            finish?.();
+          });
+          response.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+          response.on("error", reject);
+        });
+        request.on("error", reject);
+        request.end(JSON.stringify(body));
+      });
+      assert(result.startsWith(first));
+      assert(result.includes("[Jev] routed this turn"));
+      assert(result.endsWith(delta), result);
+    });
+  }
+});

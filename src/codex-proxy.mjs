@@ -283,11 +283,13 @@ export async function startCodexProxy({
             response.pipe(res);
             return;
           }
+          // Keep UTF-8 characters intact when they span upstream chunks.
+          response.setEncoding("utf8");
           let pending = "";
           let inspected = false;
           response.on("data", (chunk) => {
             if (inspected) return void res.write(chunk);
-            pending += chunk.toString();
+            pending += chunk;
             const end = pending.indexOf("\n\n");
             if (end < 0) return;
             const first = pending.slice(0, end + 2);
