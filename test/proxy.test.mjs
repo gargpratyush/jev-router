@@ -22,7 +22,7 @@ test("the sentinel is not mistaken for a real tier", () => {
   assert.equal(tierOf("jev-router"), null);
 });
 import { tierOf, isAuto } from "../src/config.mjs";
-import { writeDecision, writeStatus, readStatus, pruneStale, STATUS_DIR } from "../src/status.mjs";
+import { writeDecision, writeStatus, readStatus, pruneStale, writePrivate, STATUS_DIR } from "../src/status.mjs";
 import { mkdirSync, statSync, utimesSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -46,6 +46,21 @@ test("status files are private to their owner", { skip: process.platform === "wi
   writeStatus(sid, { tier: "opus" });
   assert.equal(statSync(STATUS_DIR).mode & 0o777, 0o700);
   assert.equal(statSync(join(STATUS_DIR, `${sid}.json`)).mode & 0o777, 0o600);
+});
+
+test("files handed to Claude Code are private to their owner", { skip: process.platform === "win32" }, () => {
+  const file = join(STATUS_DIR, `private-${process.pid}.json`);
+  writePrivate(file, "{}");
+  assert.equal(statSync(STATUS_DIR).mode & 0o777, 0o700);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+});
+
+test("a file an earlier version left readable is tightened", { skip: process.platform === "win32" }, () => {
+  const file = join(STATUS_DIR, `loose-${process.pid}.json`);
+  mkdirSync(STATUS_DIR, { recursive: true });
+  writeFileSync(file, "{}", { mode: 0o644 });
+  writePrivate(file, "{}");
+  assert.equal(statSync(file).mode & 0o777, 0o600);
 });
 
 test("stale status files are pruned and fresh ones kept", () => {

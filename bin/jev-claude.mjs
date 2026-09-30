@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, accessSync, constants } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { readFileSync, accessSync, constants } from "node:fs";
+import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startProxy } from "../src/proxy.mjs";
 import { AUTO_MODEL } from "../src/config.mjs";
 import { readSavedModel, restoreSavedModel } from "../src/settings.mjs";
+import { STATUS_DIR, writePrivate } from "../src/status.mjs";
 import { LOG_FILE } from "../src/log.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -58,12 +59,13 @@ function statusLineArgs() {
     }
   }
   // Passed as a file rather than inline JSON: on Windows the args go through a shell, and a
-  // JSON string containing its own quotes does not survive that.
+  // JSON string containing its own quotes does not survive that. Written owner-only, because
+  // Claude Code runs the command this file names and on Linux the temp dir is the shared /tmp,
+  // where anyone able to rewrite the file would choose that command.
   const command = `"${process.execPath}" "${join(HERE, "jev-statusline.mjs")}"`;
-  const file = join(tmpdir(), "jev-claude", "settings.json");
+  const file = join(STATUS_DIR, "settings.json");
   try {
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, JSON.stringify({ statusLine: { type: "command", command } }));
+    writePrivate(file, JSON.stringify({ statusLine: { type: "command", command } }));
   } catch {
     return [];
   }
@@ -122,15 +124,33 @@ if (!claude) {
   process.exit(1);
 }
 
+/**
+ * Everything the wrapper changed outside this process, undone exactly once on the way out. Each
+ * step is isolated, because a proxy that throws on close must not cost the user the settings
+ * restore: a leftover `jev-router` in their settings breaks plain `claude`, which has no proxy to
+ * resolve it.
+ */
+const teardown = [];
+let cleaned = false;
+function cleanup() {
+  if (cleaned) return;
+  cleaned = true;
+  for (const undo of teardown) {
+    try {
+      undo();
+    } catch {
+      // Best effort on the way out; the next step still has to run.
+    }
+  }
+}
+process.on("exit", cleanup);
+
 if (process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY) {
   const { port, close } = await startProxy();
   env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`;
   env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1";
   Object.assign(env, autoModelEnv());
-  process.on("exit", () => {
-    close();
-    restoreSavedModel(savedModelBefore);
-  });
+  teardown.push(close, () => restoreSavedModel(savedModelBefore));
   args.push(...statusLineArgs());
   if (process.env.JEV_DEBUG && process.stdout.isTTY) {
     process.stderr.write(`[jev] routing decisions -> ${LOG_FILE}\n`);
@@ -154,3 +174,16 @@ child.on("error", (err) => {
   process.exit(1);
 });
 child.on("exit", (code, signal) => process.exit(signal ? 1 : (code ?? 0)));
+
+// `exit` does not run when a signal ends the process, so without this a `kill` would leave the
+// sentinel in the user's settings. Ctrl+C is deliberately absent: Claude Code reads it as a
+// keystroke that interrupts a turn rather than a request to quit, and claiming it here would end
+// sessions the user only meant to interrupt. SIGKILL cannot be caught at all, which is why
+// `readSavedModel` also ignores a sentinel left behind by an earlier run.
+for (const signal of ["SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => {
+    cleanup();
+    child.kill(signal);
+    process.exit(1);
+  });
+}

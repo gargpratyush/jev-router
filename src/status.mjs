@@ -18,15 +18,25 @@ let pruned = false;
 
 const fileFor = (sessionId) => join(DIR, `${sessionId.replace(/[^\w-]/g, "")}.json`);
 
+/**
+ * Writes a file into the status directory so only the owner can read it, creating the directory
+ * the same way. Also used for the temporary Claude Code settings file, which is handed to
+ * `--settings` and names a command Claude Code then executes, so on Linux, where the temp dir is
+ * the shared /tmp, a readable copy would let another user choose that command. Throws rather than
+ * falling back to a loose file, because no status line is better than one someone else controls.
+ */
+export function writePrivate(file, contents) {
+  ensureDir();
+  writeFileSync(file, contents, { mode: FILE_MODE });
+  // `mode` only applies on creation; tighten files written by earlier versions too.
+  chmodSync(file, FILE_MODE);
+}
+
 /** Publish the latest routing decision so the status line can display it. */
 export function writeStatus(sessionId, status) {
   if (!sessionId) return;
   try {
-    ensureDir();
-    const file = fileFor(sessionId);
-    writeFileSync(file, JSON.stringify(status), { mode: FILE_MODE });
-    // `mode` only applies on creation; tighten files written by earlier versions too.
-    chmodSync(file, FILE_MODE);
+    writePrivate(fileFor(sessionId), JSON.stringify(status));
     if (!pruned) {
       pruned = true;
       pruneStale();
