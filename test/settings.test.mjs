@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, chmodSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { readSavedModel, restoreSavedModel } from "../src/settings.mjs";
 
 const fileWith = (settings) => {
@@ -40,4 +40,17 @@ test("leaves a real model the user chose during the session alone", () => {
 
 test("a missing or unreadable settings file is not an error", () => {
   assert.equal(restoreSavedModel("opus", join(tmpdir(), "nope", "settings.json")), false);
+});
+
+test("restoring keeps the file's own permissions", { skip: process.platform === "win32" }, () => {
+  const file = fileWith({ model: "jev-router" });
+  chmodSync(file, 0o600);
+  assert.equal(restoreSavedModel("opus", file), true);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+});
+
+test("restoring leaves no temporary file behind", () => {
+  const file = fileWith({ model: "jev-router" });
+  assert.equal(restoreSavedModel("opus", file), true);
+  assert.deepEqual(readdirSync(dirname(file)), ["settings.json"]);
 });
