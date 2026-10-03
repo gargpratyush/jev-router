@@ -153,12 +153,15 @@ export const upstreamFor = (
   apiBaseURL = API_BASE_URL,
 ) => /\/models(?:\?|$)/.test(path) || headers["chatgpt-account-id"] ? chatgptBaseURL : apiBaseURL;
 
-export function jevDecisionEvents({ tier, model = codexModelOf(tier), confidence, reason }) {
+export function jevDecisionEvents({ tier, model = codexModelOf(tier), confidence, reason, warning }) {
   const detail = confidence == null ? reason : `${reason}, confidence ${confidence.toFixed(2)}`;
   const id = `jev-${randomUUID()}`;
-  const text = reason.startsWith("jev-unavailable")
+  const decision = reason.startsWith("jev-unavailable")
     ? `[Jev] unavailable; using ${model}. Add JEV_API_KEY=... to ~/.jev-router.env and restart jev-codex.`
     : `[Jev] routed this turn to ${model} (${detail}).`;
+  const text = warning
+    ? `${decision}\n[Jev] warning: could not refresh the Codex model catalog: ${warning}`
+    : decision;
   const item = {
     type: "message",
     role: "assistant",
@@ -276,12 +279,14 @@ export async function startCodexProxy({
             writeFileSync(`${process.env.JEV_DUMP}.${Date.now()}.json`, JSON.stringify(body, null, 2));
           }
           if (body.model === CODEX_AUTO_MODEL) {
+            let catalogRefreshError;
             if (!isCodexModelCatalogFresh(modelCatalogFetchedAt)) {
               try {
                 await refreshCodexModels({ models, headers: req.headers, chatgptBaseURL, apiBaseURL });
                 modelCatalogFetchedAt = Date.now();
                 debug(`refreshed Codex model catalog (${models.size} models)`);
               } catch (err) {
+                catalogRefreshError = err.message;
                 debug(`could not refresh Codex model catalog: ${err.message}`);
               }
             }
@@ -323,6 +328,7 @@ export async function startCodexProxy({
                 confidence: jev?.confidence ?? null,
                 metrics: jev?.metrics ?? null,
                 reason: decision.reason,
+                warning: catalogRefreshError,
                 jev: jev ? { request: jev.request, response: jev.response } : null,
                 at: Date.now(),
               };

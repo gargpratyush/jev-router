@@ -164,6 +164,14 @@ test("surfaces routing as a native commentary event", () => {
   assert.match(events, /\[Jev\] routed this turn to gpt-6-sol/);
   assert.match(events, /confidence 0\.91/);
 
+  const warning = jevDecisionEvents({
+    tier: "opus",
+    confidence: 0.91,
+    reason: "jev",
+    warning: "upstream unavailable",
+  });
+  assert.match(warning, /warning: could not refresh the Codex model catalog: upstream unavailable/);
+
   const unavailable = jevDecisionEvents({
     tier: "opus",
     confidence: null,
