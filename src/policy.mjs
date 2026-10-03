@@ -51,7 +51,12 @@ export function decide({ prompt, jev, current, available, contextTokens = 0 }) {
   if (jev.confidence < THRESHOLDS.minConfidence) {
     if (rankOf(target) < rankOf(current)) return settle(current, "low-confidence-no-downgrade");
     const ceiling = Math.max(rankOf(current), rankOf(THRESHOLDS.uncertainCeiling));
-    if (rankOf(target) > ceiling) return settle(TIER_NAMES[ceiling], "low-confidence-capped");
+    if (rankOf(target) > ceiling) {
+      const cappedTier = TIER_NAMES[ceiling];
+      return available.includes(cappedTier)
+        ? settle(cappedTier, "low-confidence-capped")
+        : settle(current, "low-confidence-capped+unavailable");
+    }
   }
 
   if (rankOf(target) < rankOf(current) && contextTokens > THRESHOLDS.downgradeMaxContextTokens) {

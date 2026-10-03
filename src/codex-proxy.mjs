@@ -26,36 +26,34 @@ const MODEL_ENV = {
 
 export const codexModelOf = (tier) => process.env[MODEL_ENV[tier]] ?? DEFAULT_MODELS[tier];
 
+const configuredModels = () => [...new Map(
+  Object.keys(DEFAULT_MODELS).map((tier) => [codexModelOf(tier), tier]),
+).entries()].map(([id, tier]) => ({ id, tier }));
+
 export function codexTierOf(model) {
-  const configured = Object.keys(DEFAULT_MODELS).find((tier) => codexModelOf(tier) === model);
-  if (configured) return configured;
+  const configured = configuredModels().find(({ id }) => id === model);
+  if (configured) return configured.tier;
   if (/(?:astra|fable|long)/i.test(model ?? "")) return "fable";
   if (/(?:sol|opus|strong|max|pro)/i.test(model ?? "")) return "opus";
   if (/(?:luna|haiku|fast|mini|nano)/i.test(model ?? "")) return "haiku";
   return /^gpt-/i.test(model ?? "") ? "sonnet" : null;
 }
 
-/** Exact GPT models in Codex's account catalog; configured ids are the cold-start fallback. */
-export function codexModels(models = new Map()) {
-  const available = [...models.values()]
-    .filter((model) => model.slug !== CODEX_AUTO_MODEL && model.supported_in_api !== false)
-    .map((model) => ({
-      id: model.slug,
-      tier: codexTierOf(model.slug),
+/** Configured GPT models, enriched with Codex's account catalog when available. */
+export function codexModels(models = new Map(), configured = configuredModels()) {
+  const catalog = new Map([...models.values()].map((model) => [model.slug, model]));
+  return configured.map(({ id, tier }) => {
+    const model = catalog.get(id);
+    return {
+      id,
+      tier,
       description: [
-        model.display_name,
-        model.description,
-        model.context_window && `${model.context_window} context tokens`,
-      ].filter(Boolean).join("; "),
-    }))
-    .filter((model) => model.tier);
-  return available.length
-    ? available
-    : Object.keys(DEFAULT_MODELS).map((tier) => ({
-        id: codexModelOf(tier),
-        tier,
-        description: codexModelOf(tier),
-      }));
+        model?.display_name,
+        model?.description,
+        model?.context_window && `${model.context_window} context tokens`,
+      ].filter(Boolean).join("; ") || id,
+    };
+  });
 }
 
 const modelForTier = (models, tier) =>

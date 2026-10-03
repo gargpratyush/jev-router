@@ -59,6 +59,18 @@ test("caps a low-confidence upgrade at the safe ceiling", () => {
   assert.equal(out.reason, "low-confidence-capped");
 });
 
+test("does not exceed the low-confidence cap when that tier is unavailable", () => {
+  const out = decide({
+    ...base,
+    current: "haiku",
+    available: ["haiku", "opus"],
+    jev: { choice: "fable", confidence: 0.004 },
+  });
+  assert.equal(out.tier, "haiku");
+  assert.equal(out.reason, "low-confidence-capped+unavailable/no-change");
+  assert.equal(out.changed, false);
+});
+
 test("still allows a confident upgrade to fable", () => {
   assert.equal(decide({ ...base, jev: sure("fable") }).tier, "fable");
 });

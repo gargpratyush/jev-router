@@ -115,8 +115,28 @@ test("sends exact available GPT models to Jev", () => {
     ["gpt-5.6-sol", { slug: "gpt-5.6-sol", display_name: "GPT-5.6-Sol" }],
   ]);
   assert.deepEqual(codexModels(models).map(({ id, tier }) => ({ id, tier })), [
+    { id: "gpt-5.6-luna", tier: "haiku" },
     { id: "gpt-5.6-terra", tier: "sonnet" },
     { id: "gpt-5.6-sol", tier: "opus" },
+    { id: "gpt-6-astra", tier: "fable" },
+  ]);
+});
+
+test("uses only configured Codex models and lets tiers share a model", () => {
+  const catalog = new Map([
+    ["gpt-5.6-sol", { slug: "gpt-5.6-sol" }],
+    ["gpt-6-luna", { slug: "gpt-6-luna" }],
+    ["gpt-6-astra", { slug: "gpt-6-astra" }],
+  ]);
+  const configured = [
+    { id: "gpt-6-luna", tier: "haiku" },
+    { id: "gpt-6-sol", tier: "opus" },
+    { id: "gpt-6-astra", tier: "fable" },
+  ];
+  assert.deepEqual(codexModels(catalog, configured).map(({ id, tier }) => ({ id, tier })), [
+    { id: "gpt-6-luna", tier: "haiku" },
+    { id: "gpt-6-sol", tier: "opus" },
+    { id: "gpt-6-astra", tier: "fable" },
   ]);
 });
 
@@ -184,7 +204,7 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
     apiBaseURL: `${upstreamURL}/v1`,
     route: async ({ models }) => {
       routeCalls++;
-      assert.deepEqual(models.map((model) => model.id), ["gpt-5.6-terra", "gpt-5.6-sol"]);
+      assert.deepEqual(models.map((model) => model.id), ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"]);
       return {
         choice: "gpt-5.6-sol",
         confidence: 0.91,
