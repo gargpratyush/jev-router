@@ -248,6 +248,10 @@ Both launchers send Jev the exact models in the signed-in account's native catal
 versions such as `claude-opus-4-8` and `claude-opus-5` remain separate choices. Static model
 ids are used only until the CLI fetches its catalog.
 
+For Codex, Jev refreshes the account model catalog before routing whenever its in-memory copy is
+missing or more than 24 hours old. The routing choices include each model's context window and
+supported reasoning levels, so Jev can account for those capabilities when selecting a model.
+
 ## Compatibility notes
 
 - Claude Code needs schema normalisation for older MCP JSON Schema fields when a custom base

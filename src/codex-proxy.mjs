@@ -12,6 +12,7 @@ import { aggregateUsage, formatUsage, formatUsageReport, usageFromResponse } fro
 const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const API_BASE_URL = "https://api.openai.com/v1";
 export const CODEX_AUTO_MODEL = "jev-router";
+export const CODEX_MODEL_CATALOG_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_MODELS = {
   haiku: "gpt-6-luna",
   opus: "gpt-6-sol",
@@ -45,10 +46,19 @@ export function codexModels(models = new Map()) {
     .map((model) => ({
       id: model.slug,
       tier: codexTierOf(model.slug),
+      capabilities: {
+        reasoningEfforts: model.supported_reasoning_levels
+          ?.map((level) => level.effort)
+          .filter(Boolean),
+        defaultReasoningEffort: model.default_reasoning_level,
+        contextWindow: model.context_window,
+      },
       description: [
         model.display_name,
         model.description,
         model.context_window && `${model.context_window} context tokens`,
+        model.supported_reasoning_levels?.length &&
+          `reasoning: ${model.supported_reasoning_levels.map((level) => level.effort).filter(Boolean).join(", ")}`,
       ].filter(Boolean).join("; "),
     }))
     .filter((model) => model.tier);
@@ -164,6 +174,36 @@ export function jevDecisionEvents({ tier, model = codexModelOf(tier), confidence
   return events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
 }
 
+export const isCodexModelCatalogFresh = (fetchedAt, now = Date.now()) =>
+  Number.isFinite(fetchedAt) && now - fetchedAt < CODEX_MODEL_CATALOG_MAX_AGE_MS;
+
+/** Fetches the account's current Codex catalog, preserving capability metadata for routing. */
+export async function refreshCodexModels({
+  models,
+  headers = {},
+  chatgptBaseURL = CHATGPT_BASE_URL,
+  apiBaseURL = API_BASE_URL,
+} = {}) {
+  const base = upstreamFor(headers, "/models", chatgptBaseURL, apiBaseURL);
+  const url = `${base.replace(/\/$/, "")}/models?client_version=1`;
+  const response = await fetch(url, {
+    headers: Object.fromEntries(
+      Object.entries(headers).filter(([name]) => !["host", "content-length"].includes(name.toLowerCase())),
+    ),
+  });
+  if (!response.ok) throw new Error(`Codex model catalog returned HTTP ${response.status}`);
+  const catalog = await response.json();
+  if (!Array.isArray(catalog?.models)) throw new Error("Codex model catalog was malformed");
+  const next = new Map();
+  for (const model of catalog.models) {
+    if (model?.slug) next.set(model.slug, model);
+  }
+  if (!next.size) throw new Error("Codex model catalog was empty");
+  models.clear();
+  for (const [id, model] of next) models.set(id, model);
+  return next;
+}
+
 export function jevUsageEvents(text) {
   const id = `jev-usage-${randomUUID()}`;
   const item = {
@@ -219,6 +259,7 @@ export async function startCodexProxy({
   const states = new Map();
   const usageTurns = new Map();
   const models = new Map();
+  let modelCatalogFetchedAt = 0;
 
   const server = http.createServer((req, res) => {
     const chunks = [];
@@ -235,6 +276,15 @@ export async function startCodexProxy({
             writeFileSync(`${process.env.JEV_DUMP}.${Date.now()}.json`, JSON.stringify(body, null, 2));
           }
           if (body.model === CODEX_AUTO_MODEL) {
+            if (!isCodexModelCatalogFresh(modelCatalogFetchedAt)) {
+              try {
+                await refreshCodexModels({ models, headers: req.headers, chatgptBaseURL, apiBaseURL });
+                modelCatalogFetchedAt = Date.now();
+                debug(`refreshed Codex model catalog (${models.size} models)`);
+              } catch (err) {
+                debug(`could not refresh Codex model catalog: ${err.message}`);
+              }
+            }
             const key = codexConversationKey(body);
             const candidates = codexModels(models).filter((model) =>
               availableTiers().includes(model.tier),
@@ -344,6 +394,7 @@ export async function startCodexProxy({
               try {
                 const catalog = addJevModel(JSON.parse(data.toString()));
                 for (const model of catalog.models) models.set(model.slug, model);
+                modelCatalogFetchedAt = Date.now();
                 data = Buffer.from(JSON.stringify(catalog));
                 delete responseHeaders["content-length"];
               } catch (err) {

@@ -10,6 +10,7 @@ import {
   codexConversationKey,
   codexModels,
   codexNewTurnPrompt,
+  isCodexModelCatalogFresh,
   isCodexAuxiliaryPrompt,
   jevDecisionEvents,
   startCodexProxy,
@@ -118,6 +119,32 @@ test("sends exact available GPT models to Jev", () => {
     { id: "gpt-6-luna", tier: "haiku" },
     { id: "gpt-6-sol", tier: "opus" },
   ]);
+});
+
+test("includes Codex reasoning capabilities in the routing model description", () => {
+  const [model] = codexModels(new Map([[
+    "gpt-6-sol",
+    {
+      slug: "gpt-6-sol",
+      display_name: "GPT-6 Sol",
+      context_window: 200000,
+      supported_reasoning_levels: [{ effort: "medium" }, { effort: "high" }],
+      default_reasoning_level: "medium",
+    },
+  ]]));
+  assert.deepEqual(model.capabilities, {
+    reasoningEfforts: ["medium", "high"],
+    defaultReasoningEffort: "medium",
+    contextWindow: 200000,
+  });
+  assert.match(model.description, /reasoning: medium, high/);
+});
+
+test("expires the Codex model catalog after one day", () => {
+  const now = 10 * 24 * 60 * 60 * 1000;
+  assert.equal(isCodexModelCatalogFresh(now - 23 * 60 * 60 * 1000, now), true);
+  assert.equal(isCodexModelCatalogFresh(now - 24 * 60 * 60 * 1000, now), false);
+  assert.equal(isCodexModelCatalogFresh(0, now), false);
 });
 
 test("uses unique GPT-6 models for the cold-start fallback", () => {
