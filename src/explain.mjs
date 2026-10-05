@@ -1,3 +1,4 @@
+import { tierOf } from "./config.mjs";
 const WIDTH = 33;
 const row = (text = "") => `│ ${text.slice(0, WIDTH - 2).padEnd(WIDTH - 2)} │`;
 const metric = (value) => (Number.isFinite(value) ? value.toFixed(2) : "n/a");
@@ -27,7 +28,12 @@ export function formatExplanation(status) {
 
   const m = status.metrics ?? {};
   const request = status.jev?.request?.state;
-  const recommendation = status.jev?.response?.answers?.model_tier?.choice ?? status.tier ?? "unknown";
+  // askJev's Choice is keyed "model" (exact provider id); older fixtures used "model_tier".
+  // Map an id to its tier so the line stays a short tier name next to "Selected model".
+  const raw =
+    status.jev?.response?.answers?.model?.choice ??
+    status.jev?.response?.answers?.model_tier?.choice;
+  const recommendation = (raw && (tierOf(raw) ?? raw)) || status.tier || "unknown";
   return [
     `┌${"─".repeat(WIDTH)}┐`,
     row("Jev Router"),

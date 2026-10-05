@@ -11,7 +11,7 @@ test("formats the last routing decision", () => {
     reason: "jev",
     jev: {
       request: { state: { session: { current_model: "haiku", context_tokens: 6200 } } },
-      response: { answers: { model_tier: { choice: "sonnet" } } },
+      response: { answers: { model: { choice: "claude-sonnet-5" } } },
     },
     metrics: {
       taskComplexity: 0.82,
@@ -29,6 +29,23 @@ test("formats the last routing decision", () => {
   assert.match(output, /Selected model: SONNET/);
   assert.match(output, /Confidence: 94%/);
   assert.match(output, /Decision: Jev recommendation/);
+});
+
+test("recommended tier is Jev's pick, not the tier policy settled on", () => {
+  const output = formatExplanation({
+    prompt: "fix a typo",
+    tier: "sonnet",
+    model: "claude-sonnet-5",
+    confidence: 0.2,
+    reason: "low-confidence-no-downgrade",
+    jev: {
+      request: { state: { session: { current_model: "sonnet", context_tokens: 100 } } },
+      response: { answers: { model: { choice: "claude-haiku-4-5-20251001" } } },
+    },
+  });
+  assert.match(output, /Recommended tier: HAIKU/);
+  assert.match(output, /Selected model: CLAUDE-SONNET-5/);
+  assert.match(output, /Decision: low confidence; held/);
 });
 
 test("shows the concrete provider model when available", () => {
