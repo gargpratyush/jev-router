@@ -1,7 +1,9 @@
 import http from "node:http";
 import https from "node:https";
 import { createHash, randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { availableTiers, shouldUseExactModel } from "./config.mjs";
 import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
@@ -13,6 +15,9 @@ const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const API_BASE_URL = "https://api.openai.com/v1";
 export const CODEX_AUTO_MODEL = "jev-router";
 export const CODEX_MODEL_CATALOG_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const OPENAI_MODEL_CATALOG_URL = "https://developers.openai.com/api/docs/models/all";
+export const OPENAI_MODEL_CACHE_FILE = join(homedir(), ".jev-router", "openai-model-allowlist.json");
+const MODEL_CACHE_VERSION = 1;
 const DEFAULT_MODELS = {
   haiku: "gpt-6-luna",
   opus: "gpt-6-sol",
@@ -24,11 +29,36 @@ const MODEL_ENV = {
   opus: "JEV_CODEX_STRONG_MODEL",
   fable: "JEV_CODEX_LONG_MODEL",
 };
-const REASONING_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"];
+const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
+
+const FALLBACK_MODEL_METADATA = {
+  "gpt-6-luna": {
+    display_name: "GPT-6 Luna",
+    context_window: 1_050_000,
+    max_output_tokens: 128_000,
+    supported_reasoning_levels: ["none", "low", "medium", "high", "xhigh", "max"].map((effort) => ({ effort })),
+    cost: { currency: "USD", unit: "million_tokens", input: 0.1, output: 0.5 },
+  },
+  "gpt-6-sol": {
+    display_name: "GPT-6 Sol",
+    context_window: 1_050_000,
+    max_output_tokens: 128_000,
+    supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max"].map((effort) => ({ effort })),
+    cost: { currency: "USD", unit: "million_tokens", input: 2, output: 10 },
+  },
+  "gpt-6-astra": {
+    display_name: "GPT-6 Astra",
+    context_window: 1_050_000,
+    max_output_tokens: 128_000,
+    supported_reasoning_levels: ["low", "medium", "high", "xhigh", "max"].map((effort) => ({ effort })),
+    cost: { currency: "USD", unit: "million_tokens", input: 10, output: 50 },
+  },
+};
 
 export const codexModelOf = (tier) => process.env[MODEL_ENV[tier]] ?? DEFAULT_MODELS[tier];
 
 export function codexTierOf(model) {
+  if (/(?:audio|chat|cyber|image|live|realtime|search|transcri|tts|whisper)/i.test(model ?? "")) return null;
   const configured = Object.keys(MODEL_ENV).find((tier) => {
     const id = process.env[MODEL_ENV[tier]] ?? DEFAULT_MODELS[tier];
     return typeof id === "string" && id === model;
@@ -38,6 +68,162 @@ export function codexTierOf(model) {
   if (/(?:sol|opus|strong|max|pro)/i.test(model ?? "")) return "opus";
   if (/(?:luna|haiku|fast|mini|nano)/i.test(model ?? "")) return "haiku";
   return /^gpt-/i.test(model ?? "") ? "sonnet" : null;
+}
+
+const decodeHtml = (value) => value
+  .replace(/&amp;/g, "&")
+  .replace(/&quot;/g, '"')
+  .replace(/&#39;|&apos;/g, "'")
+  .replace(/&lt;/g, "<")
+  .replace(/&gt;/g, ">");
+
+const textFromHtml = (html) => decodeHtml(String(html ?? ""))
+  .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+  .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+  .replace(/<[^>]+>/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const tokenCount = (value) => {
+  const match = /^([\d,.]+)\s*([KMB])?$/i.exec(String(value ?? "").trim());
+  if (!match) return undefined;
+  return Number(match[1].replace(/,/g, "")) * ({ K: 1e3, M: 1e6, B: 1e9 }[match[2]?.toUpperCase()] ?? 1);
+};
+
+const dollars = (value) => value == null ? undefined : Number(String(value).replace(/,/g, ""));
+
+/** Model links and lifecycle state published in OpenAI's complete model catalog. */
+export function parseOpenAIModelIndex(html) {
+  const found = new Map();
+  const links = /<a\b[^>]*href=["']\/api\/docs\/models\/([^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = links.exec(String(html ?? "")))) {
+    const id = decodeURIComponent(match[1]);
+    if (!/^gpt-/i.test(id) || !codexTierOf(id)) continue;
+    const deprecated = /\bDeprecated\b/i.test(textFromHtml(match[2]));
+    found.set(id, { id, deprecated: Boolean(found.get(id)?.deprecated || deprecated) });
+  }
+  return [...found.values()];
+}
+
+/** Cost and capability metadata from one official OpenAI model page. */
+export function parseOpenAIModelPage(id, html, sourceURL) {
+  const raw = String(html ?? "");
+  const main = /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(raw)?.[1] ?? raw;
+  const text = textFromHtml(main);
+  const reasoningText = /reasoning\.effort supports ([^.]+)\./i.exec(text)?.[1] ?? "";
+  const reasoningEfforts = REASONING_EFFORTS.filter((effort) =>
+    new RegExp(`\\b${effort}\\b`, "i").test(reasoningText),
+  );
+  const defaultReasoning = REASONING_EFFORTS.find((effort) =>
+    new RegExp(`\\b${effort}\\s*\\(default\\)`, "i").test(reasoningText),
+  );
+  const pricing = /Text tokens Per 1M tokens Input \$([\d,.]+)(?: Cached input \$([\d,.]+))?(?: Cache writes \$([\d,.]+))? Output \$([\d,.]+)/i.exec(text);
+  const section = (start, end) => {
+    const from = text.lastIndexOf(start);
+    const to = from < 0 ? -1 : text.indexOf(end, from + start.length);
+    return from < 0 || to < 0 ? "" : text.slice(from + start.length, to);
+  };
+  const modalities = section("Modalities ", " Endpoints ");
+  const features = section("Features ", " Tools ");
+  const tools = section("Tools supported by this model when using the Responses API. ", " Snapshots");
+  const supported = (block, names) => names.filter((name) =>
+    new RegExp(`${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} Supported`, "i").test(block),
+  );
+  const metaDescription = /<meta\b[^>]*name=["']description["'][^>]*content=["']([^"']*)["']/i.exec(raw)?.[1];
+  return {
+    slug: id,
+    display_name: textFromHtml(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(main)?.[1]) || id,
+    description: metaDescription ? decodeHtml(metaDescription) : undefined,
+    context_window: tokenCount(/([\d,.]+\s*[KMB]?) context window/i.exec(text)?.[1]),
+    max_output_tokens: tokenCount(/([\d,.]+\s*[KMB]?) max output tokens/i.exec(text)?.[1]),
+    supported_reasoning_levels: reasoningEfforts.map((effort) => ({ effort })),
+    default_reasoning_level: defaultReasoning,
+    cost: pricing ? {
+      currency: "USD",
+      unit: "million_tokens",
+      input: dollars(pricing[1]),
+      cached_input: dollars(pricing[2]),
+      cache_write: dollars(pricing[3]),
+      output: dollars(pricing[4]),
+    } : undefined,
+    capabilities: {
+      modalities: {
+        input: ["Text", "Image", "Audio", "Video"].filter((name) =>
+          new RegExp(`${name} (?:Input and output|Input only)`, "i").test(modalities),
+        ),
+        output: ["Text", "Image", "Audio", "Video"].filter((name) =>
+          new RegExp(`${name} (?:Input and output|Output only)`, "i").test(modalities),
+        ),
+      },
+      features: supported(features, ["Streaming", "Function calling", "Structured outputs", "Fine-tuning"]),
+      tools: supported(tools, ["Web search", "File search", "Image generation", "Code interpreter", "Hosted shell", "Apply patch", "Skills", "Computer use", "MCP", "Tool search"]),
+    },
+    source_url: sourceURL,
+  };
+}
+
+export async function fetchPublishedOpenAIModels({
+  fetchImpl = fetch,
+  catalogURL = OPENAI_MODEL_CATALOG_URL,
+  previous = [],
+} = {}) {
+  const response = await fetchImpl(catalogURL);
+  if (!response.ok) throw new Error(`OpenAI model catalog returned HTTP ${response.status}`);
+  const index = parseOpenAIModelIndex(await response.text()).filter((model) => !model.deprecated);
+  const previousById = new Map(previous.map((model) => [model.slug, model]));
+  const results = await Promise.allSettled(index.map(async ({ id }) => {
+    const url = new URL(`/api/docs/models/${encodeURIComponent(id)}`, catalogURL).href;
+    const page = await fetchImpl(url);
+    if (!page.ok) throw new Error(`OpenAI model page for ${id} returned HTTP ${page.status}`);
+    return parseOpenAIModelPage(id, await page.text(), url);
+  }));
+  const models = results.flatMap((result, indexPosition) => {
+    if (result.status === "fulfilled") return [result.value];
+    const prior = previousById.get(index[indexPosition].id);
+    return prior ? [prior] : [];
+  });
+  const routable = models.filter((model) =>
+    model.capabilities.modalities.input.includes("Text") &&
+    model.capabilities.modalities.output.includes("Text") &&
+    model.capabilities.features.includes("Function calling") &&
+    model.capabilities.tools.length &&
+    model.cost?.input != null &&
+    model.cost?.output != null,
+  );
+  if (!routable.length) throw new Error("OpenAI model catalog contained no routable models");
+  return routable;
+}
+
+const normalizeAvailableModels = (catalog) => {
+  const entries = Array.isArray(catalog?.models) ? catalog.models : catalog?.data;
+  if (!Array.isArray(entries)) throw new Error("OpenAI account model catalog was malformed");
+  return new Map(entries.flatMap((model) => {
+    const id = model?.slug ?? model?.id;
+    const retired = model?.supported_in_api === false ||
+      (model?.shutdown_date && Date.parse(model.shutdown_date) <= Date.now());
+    return id && !retired ? [[id, { ...model, slug: id }]] : [];
+  }));
+};
+
+export function readOpenAIModelCache(file = OPENAI_MODEL_CACHE_FILE) {
+  if (!file) return null;
+  try {
+    const cache = JSON.parse(readFileSync(file, "utf8"));
+    if (cache?.version !== MODEL_CACHE_VERSION || !Array.isArray(cache.models)) return null;
+    return cache;
+  } catch {
+    return null;
+  }
+}
+
+export function writeOpenAIModelCache(cache, file = OPENAI_MODEL_CACHE_FILE) {
+  if (!file) return;
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, JSON.stringify(cache, null, 2), { mode: 0o600 });
+  renameSync(temporary, file);
+  chmodSync(file, 0o600);
 }
 
 /** Exact GPT models in Codex's account catalog; configured ids are the cold-start fallback. */
@@ -53,23 +239,45 @@ export function codexModels(models = new Map()) {
           .filter(Boolean),
         defaultReasoningEffort: model.default_reasoning_level,
         contextWindow: model.context_window,
+        ...(model.max_output_tokens != null ? { maxOutputTokens: model.max_output_tokens } : {}),
+        ...model.capabilities,
       },
+      cost: model.cost,
       description: [
         model.display_name,
         model.description,
         model.context_window && `${model.context_window} context tokens`,
         model.supported_reasoning_levels?.length &&
           `reasoning: ${model.supported_reasoning_levels.map((level) => level.effort).filter(Boolean).join(", ")}`,
+        model.cost?.input != null && model.cost?.output != null &&
+          `cost per 1M tokens: $${model.cost.input} input, $${model.cost.output} output`,
       ].filter(Boolean).join("; "),
     }))
     .filter((model) => model.tier);
   return available.length
     ? available
-    : Object.keys(DEFAULT_MODELS).map((tier) => ({
-        id: codexModelOf(tier),
-        tier,
-        description: codexModelOf(tier),
-      }));
+    : Object.keys(DEFAULT_MODELS).map((tier) => {
+        const id = codexModelOf(tier);
+        const metadata = FALLBACK_MODEL_METADATA[id] ?? {};
+        return {
+          id,
+          tier,
+          capabilities: {
+            reasoningEfforts: metadata.supported_reasoning_levels?.map((level) => level.effort),
+            defaultReasoningEffort: metadata.default_reasoning_level,
+            contextWindow: metadata.context_window,
+            ...(metadata.max_output_tokens != null ? { maxOutputTokens: metadata.max_output_tokens } : {}),
+          },
+          cost: metadata.cost,
+          description: [
+            metadata.display_name ?? id,
+            metadata.context_window && `${metadata.context_window} context tokens`,
+            metadata.supported_reasoning_levels?.length &&
+              `reasoning: ${metadata.supported_reasoning_levels.map((level) => level.effort).join(", ")}`,
+            metadata.cost && `cost per 1M tokens: $${metadata.cost.input} input, $${metadata.cost.output} output`,
+          ].filter(Boolean).join("; "),
+        };
+      });
 }
 
 const modelForTier = (models, tier) =>
@@ -183,7 +391,7 @@ export const upstreamFor = (
   path = "",
   chatgptBaseURL = CHATGPT_BASE_URL,
   apiBaseURL = API_BASE_URL,
-) => /\/models(?:\?|$)/.test(path) || headers["chatgpt-account-id"] ? chatgptBaseURL : apiBaseURL;
+) => headers["chatgpt-account-id"] ? chatgptBaseURL : apiBaseURL;
 
 export function jevDecisionEvents({ tier, model = codexModelOf(tier), effort, confidence, reason, warning }) {
   const detail = confidence == null ? reason : `${reason}, confidence ${confidence.toFixed(2)}`;
@@ -210,30 +418,58 @@ export function jevDecisionEvents({ tier, model = codexModelOf(tier), effort, co
 }
 
 export const isCodexModelCatalogFresh = (fetchedAt, now = Date.now()) =>
-  Number.isFinite(fetchedAt) && now - fetchedAt < CODEX_MODEL_CATALOG_MAX_AGE_MS;
+  Number.isFinite(fetchedAt) && now >= fetchedAt && now - fetchedAt < CODEX_MODEL_CATALOG_MAX_AGE_MS;
 
-/** Fetches the account's current Codex catalog, preserving capability metadata for routing. */
+/**
+ * Refreshes the routable allowlist from OpenAI's published catalog, intersected with the
+ * models currently available to this account. The result is persisted for cold starts.
+ */
 export async function refreshCodexModels({
   models,
+  availableModels,
   headers = {},
   chatgptBaseURL = CHATGPT_BASE_URL,
   apiBaseURL = API_BASE_URL,
+  catalogURL = OPENAI_MODEL_CATALOG_URL,
+  cacheFile = OPENAI_MODEL_CACHE_FILE,
+  fetchImpl = fetch,
 } = {}) {
-  const base = upstreamFor(headers, "/models", chatgptBaseURL, apiBaseURL);
-  const url = `${base.replace(/\/$/, "")}/models?client_version=1`;
-  const response = await fetch(url, {
-    headers: Object.fromEntries(
-      Object.entries(headers).filter(([name]) => !["host", "content-length"].includes(name.toLowerCase())),
-    ),
-  });
-  if (!response.ok) throw new Error(`Codex model catalog returned HTTP ${response.status}`);
-  const catalog = await response.json();
-  if (!Array.isArray(catalog?.models)) throw new Error("Codex model catalog was malformed");
-  const next = new Map();
-  for (const model of catalog.models) {
-    if (model?.slug) next.set(model.slug, model);
+  let available = availableModels;
+  if (!(available instanceof Map)) {
+    const base = upstreamFor(headers, "/models", chatgptBaseURL, apiBaseURL);
+    const url = `${base.replace(/\/$/, "")}/models?client_version=1`;
+    const response = await fetchImpl(url, {
+      headers: Object.fromEntries(
+        Object.entries(headers).filter(([name]) => !["host", "content-length"].includes(name.toLowerCase())),
+      ),
+    });
+    if (!response.ok) throw new Error(`OpenAI account model catalog returned HTTP ${response.status}`);
+    available = normalizeAvailableModels(await response.json());
   }
-  if (!next.size) throw new Error("Codex model catalog was empty");
+  const published = await fetchPublishedOpenAIModels({
+    fetchImpl,
+    catalogURL,
+    previous: [...models.values()],
+  });
+  const next = new Map();
+  for (const metadata of published) {
+    const account = available.get(metadata.slug);
+    if (!account) continue;
+    next.set(metadata.slug, {
+      ...account,
+      ...metadata,
+      slug: metadata.slug,
+      supported_in_api: true,
+      supported_reasoning_levels: metadata.supported_reasoning_levels?.length
+        ? metadata.supported_reasoning_levels
+        : account.supported_reasoning_levels,
+      default_reasoning_level: metadata.default_reasoning_level ?? account.default_reasoning_level,
+      context_window: metadata.context_window ?? account.context_window,
+    });
+  }
+  if (!next.size) throw new Error("No published routing models are available to this account");
+  const fetchedAt = Date.now();
+  writeOpenAIModelCache({ version: MODEL_CACHE_VERSION, fetchedAt, models: [...next.values()] }, cacheFile);
   models.clear();
   for (const [id, model] of next) models.set(id, model);
   return next;
@@ -289,13 +525,19 @@ const upstreamPath = (base, path) => `${new URL(base).pathname.replace(/\/$/, ""
 export async function startCodexProxy({
   chatgptBaseURL = CHATGPT_BASE_URL,
   apiBaseURL = API_BASE_URL,
+  catalogURL = OPENAI_MODEL_CATALOG_URL,
+  modelCacheFile = OPENAI_MODEL_CACHE_FILE,
+  fetchImpl = fetch,
   route = askJev,
   statusId = "",
 } = {}) {
   const states = new Map();
   const usageTurns = new Map();
-  const models = new Map();
-  let modelCatalogFetchedAt = 0;
+  const cachedCatalog = readOpenAIModelCache(modelCacheFile);
+  const models = new Map((cachedCatalog?.models ?? []).map((model) => [model.slug, model]));
+  const accountModels = new Map();
+  let modelCatalogFetchedAt = cachedCatalog?.fetchedAt ?? 0;
+  let modelCatalogRefresh;
 
   const server = http.createServer((req, res) => {
     const chunks = [];
@@ -315,7 +557,18 @@ export async function startCodexProxy({
             let catalogRefreshError;
             if (!isCodexModelCatalogFresh(modelCatalogFetchedAt)) {
               try {
-                await refreshCodexModels({ models, headers: req.headers, chatgptBaseURL, apiBaseURL });
+                modelCatalogRefresh ??= refreshCodexModels({
+                  models,
+                    availableModels: accountModels.size ? accountModels : undefined,
+                    headers: req.headers,
+                    chatgptBaseURL,
+                    apiBaseURL,
+                    catalogURL,
+                    cacheFile: modelCacheFile,
+                    fetchImpl,
+                  })
+                  .finally(() => { modelCatalogRefresh = null; });
+                await modelCatalogRefresh;
                 modelCatalogFetchedAt = Date.now();
                 debug(`refreshed Codex model catalog (${models.size} models)`);
               } catch (err) {
@@ -441,9 +694,11 @@ export async function startCodexProxy({
             response.on("end", () => {
               let data = Buffer.concat(body);
               try {
-                const catalog = addJevModel(JSON.parse(data.toString()));
-                for (const model of catalog.models) models.set(model.slug, model);
-                modelCatalogFetchedAt = Date.now();
+                const rawCatalog = JSON.parse(data.toString());
+                const available = normalizeAvailableModels(rawCatalog);
+                accountModels.clear();
+                for (const [id, model] of available) accountModels.set(id, model);
+                const catalog = addJevModel(rawCatalog);
                 data = Buffer.from(JSON.stringify(catalog));
                 delete responseHeaders["content-length"];
               } catch (err) {

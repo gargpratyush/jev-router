@@ -248,10 +248,19 @@ Both launchers send Jev the exact models in the signed-in account's native catal
 versions such as `claude-opus-4-8` and `claude-opus-5` remain separate choices. Static model
 ids are used only until the CLI fetches its catalog.
 
-For Codex, Jev refreshes the account model catalog before routing whenever its in-memory copy is
-missing or more than 24 hours old. The routing choices include each model's context window and
-supported reasoning levels. Jev maps its reasoning-requirement score to a supported effort for
-the selected model, pins that model-and-effort pair for the turn, and reports both in commentary.
+For Codex, Jev maintains an allowlist built from OpenAI's published model catalog, intersected
+with the models returned for the signed-in account by `GET /v1/models` (or the equivalent Codex
+subscription catalog). Published metadata supplies token prices, context and output limits,
+modalities, features, tools, and supported reasoning levels; account discovery prevents routing
+to a model the current credentials cannot use. Deprecated published models are omitted.
+
+The allowlist is cached at `~/.jev-router/openai-model-allowlist.json`. Jev loads it at startup
+and refreshes it before routing when it is missing or at least 24 hours old. If refresh fails,
+Jev keeps using the stale cache and surfaces a warning rather than blocking the turn. Task
+suitability guidance, confidence thresholds, upgrades, and downgrade guards remain in
+`src/config.mjs` and `src/policy.mjs`. Jev maps its reasoning-requirement score to a supported
+effort for the selected model, pins that model-and-effort pair for the turn, and reports both in
+commentary.
 
 ## Compatibility notes
 

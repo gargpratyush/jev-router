@@ -13,6 +13,10 @@ import {
   isCodexModelCatalogFresh,
   isCodexAuxiliaryPrompt,
   jevDecisionEvents,
+  parseOpenAIModelIndex,
+  parseOpenAIModelPage,
+  readOpenAIModelCache,
+  refreshCodexModels,
   selectCodexReasoningEffort,
   startCodexProxy,
   upstreamFor,
@@ -97,7 +101,7 @@ test("routes subscription auth to ChatGPT and API keys to the public API", () =>
     "https://chatgpt.com/backend-api/codex",
   );
   assert.equal(upstreamFor({ authorization: "Bearer sk-test" }, "/responses"), "https://api.openai.com/v1");
-  assert.equal(upstreamFor({ authorization: "Bearer sk-test" }, "/models"), "https://chatgpt.com/backend-api/codex");
+  assert.equal(upstreamFor({ authorization: "Bearer sk-test" }, "/models"), "https://api.openai.com/v1");
 });
 
 test("maps tiers and clamps unsupported reasoning effort", () => {
@@ -129,6 +133,7 @@ test("maps Jev reasoning requirements to supported Codex effort levels", () => {
   assert.equal(selectCodexReasoningEffort({ reasoningRequired: 0.7, supported }), "high");
   assert.equal(selectCodexReasoningEffort({ reasoningRequired: 0.9, supported }), "xhigh");
   assert.equal(selectCodexReasoningEffort({ reasoningRequired: 0.9, supported: ["low", "high"] }), "high");
+  assert.equal(selectCodexReasoningEffort({ reasoningRequired: 0.9, supported: ["high", "ultra"] }), "ultra");
   assert.equal(selectCodexReasoningEffort({ requested: "high", supported }), "high");
 });
 
@@ -156,6 +161,70 @@ test("expires the Codex model catalog after one day", () => {
   assert.equal(isCodexModelCatalogFresh(now - 23 * 60 * 60 * 1000, now), true);
   assert.equal(isCodexModelCatalogFresh(now - 24 * 60 * 60 * 1000, now), false);
   assert.equal(isCodexModelCatalogFresh(0, now), false);
+  assert.equal(isCodexModelCatalogFresh(now + 1, now), false);
+});
+
+const publishedModelPage = (id, input, output) => `
+  <html><head><meta name="description" content="${id} for coding"></head><body><main>
+  <h1>${id}</h1>
+  reasoning.effort supports low, medium (default), high, xhigh, and max.
+  1,050,000 context window 128,000 max output tokens
+  Text tokens Per 1M tokens Input $${input} Cached input $0.10 Cache writes $2.50 Output $${output}
+  Modalities Text Input and output Image Input only Audio Not supported Endpoints
+  Features Streaming Supported Function calling Supported Structured outputs Supported Fine-tuning Not supported Tools
+  Tools supported by this model when using the Responses API. Web search Supported Apply patch Supported MCP Supported Snapshots
+  </main></body></html>`;
+
+test("reads routing metadata from OpenAI's published catalog", () => {
+  const index = parseOpenAIModelIndex(`
+    <a href="/api/docs/models/gpt-6-sol">GPT-6 Sol</a>
+    <a href="/api/docs/models/gpt-5.3-codex">GPT-5.3 Codex Deprecated</a>
+    <a href="/api/docs/models/gpt-image-2">GPT Image</a>
+  `);
+  assert.deepEqual(index, [
+    { id: "gpt-6-sol", deprecated: false },
+    { id: "gpt-5.3-codex", deprecated: true },
+  ]);
+  const model = parseOpenAIModelPage("gpt-6-sol", publishedModelPage("gpt-6-sol", 2, 10), "https://example.test/gpt-6-sol");
+  assert.equal(model.context_window, 1_050_000);
+  assert.equal(model.max_output_tokens, 128_000);
+  assert.deepEqual(model.supported_reasoning_levels.map(({ effort }) => effort), ["low", "medium", "high", "xhigh", "max"]);
+  assert.deepEqual(model.cost, {
+    currency: "USD", unit: "million_tokens", input: 2, cached_input: 0.1, cache_write: 2.5, output: 10,
+  });
+  assert.deepEqual(model.capabilities.modalities, { input: ["Text", "Image"], output: ["Text"] });
+  assert.deepEqual(model.capabilities.features, ["Streaming", "Function calling", "Structured outputs"]);
+  assert.deepEqual(model.capabilities.tools, ["Web search", "Apply patch", "MCP"]);
+});
+
+test("refreshes and persists the intersection of published and account models", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "jev-model-cache-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const cacheFile = join(dir, "allowlist.json");
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/models?")) return new Response(JSON.stringify({ data: [
+      { id: "gpt-6-sol", object: "model" },
+      { id: "account-only-model", object: "model" },
+    ] }));
+    if (String(url).endsWith("/all")) return new Response(`
+      <a href="/api/docs/models/gpt-6-sol">GPT-6 Sol</a>
+      <a href="/api/docs/models/gpt-6-luna">GPT-6 Luna</a>
+    `);
+    const id = String(url).split("/").at(-1);
+    return new Response(publishedModelPage(id, id === "gpt-6-sol" ? 2 : 0.1, id === "gpt-6-sol" ? 10 : 0.5));
+  };
+  const models = new Map();
+  await refreshCodexModels({
+    models,
+    headers: { authorization: "Bearer sk-test" },
+    apiBaseURL: "https://api.test/v1",
+    catalogURL: "https://docs.test/api/docs/models/all",
+    cacheFile,
+    fetchImpl,
+  });
+  assert.deepEqual([...models.keys()], ["gpt-6-sol"]);
+  assert.equal(models.get("gpt-6-sol").cost.output, 10);
+  assert.deepEqual(readOpenAIModelCache(cacheFile).models.map(({ slug }) => slug), ["gpt-6-sol"]);
 });
 
 test("uses unique GPT-6 models for the cold-start fallback", () => {
@@ -227,6 +296,18 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
           }],
         }));
       }
+      if (req.url === "/catalog") {
+        res.setHeader("content-type", "text/html");
+        return res.end(`
+          <a href="/api/docs/models/gpt-6-luna">GPT-6 Luna</a>
+          <a href="/api/docs/models/gpt-6-sol">GPT-6 Sol</a>
+        `);
+      }
+      if (req.url.startsWith("/api/docs/models/")) {
+        res.setHeader("content-type", "text/html");
+        const id = req.url.split("/").at(-1);
+        return res.end(publishedModelPage(id, id === "gpt-6-sol" ? 2 : 0.1, id === "gpt-6-sol" ? 10 : 0.5));
+      }
       const usage = req.url.includes("retry")
         ? { input_tokens: 7, input_tokens_details: { cached_tokens: 3 }, output_tokens: 5, total_tokens: 12 }
         : { input_tokens: 10, input_tokens_details: { cached_tokens: 4 }, output_tokens: 2, output_tokens_details: { reasoning_tokens: 1 }, total_tokens: 12 };
@@ -239,11 +320,15 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
   await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
   t.after(() => upstream.close());
   const upstreamURL = `http://127.0.0.1:${upstream.address().port}`;
+  const cacheDir = mkdtempSync(join(tmpdir(), "jev-codex-model-cache-"));
+  t.after(() => rmSync(cacheDir, { recursive: true, force: true }));
   const statusId = `codex-test-${process.pid}`;
   let routeCalls = 0;
   const { port, close } = await startCodexProxy({
     chatgptBaseURL: `${upstreamURL}/backend-api/codex`,
     apiBaseURL: `${upstreamURL}/v1`,
+    catalogURL: `${upstreamURL}/catalog`,
+    modelCacheFile: join(cacheDir, "allowlist.json"),
     route: async ({ models }) => {
       routeCalls++;
       assert.deepEqual(models.map((model) => model.id), ["gpt-6-luna", "gpt-6-sol"]);
@@ -283,8 +368,9 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
 
   assert.equal(seen[0].authorization, "Bearer subscription-token");
   assert.equal(seen[0].account, "acct");
-  assert.equal(seen[1].body.model, "gpt-6-sol");
-  assert.equal(seen[1].body.reasoning.effort, "xhigh");
+  const routedRequests = seen.filter(({ body }) => body?.model);
+  assert.equal(routedRequests[0].body.model, "gpt-6-sol");
+  assert.equal(routedRequests[0].body.reasoning.effort, "xhigh");
   assert.equal(readStatus(statusId).tier, "opus");
   assert.equal(readStatus(statusId).model, "gpt-6-sol");
   assert.equal(readStatus(statusId).effort, "xhigh");
@@ -292,6 +378,7 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
   assert.equal(readStatus(statusId).jev.request.state.request, "debug this race");
   assert.equal(readStatus(statusId).history.length, 1);
   assert.equal(readStatus(statusId).metrics.reasoningRequired, 0.91);
+  assert.equal(isCodexModelCatalogFresh(readOpenAIModelCache(join(cacheDir, "allowlist.json")).fetchedAt), true);
   assert.deepEqual(readStatus(statusId).usage.turns[0].aggregate, {
     inputTokens: 10,
     cachedInputTokens: 4,
@@ -340,7 +427,7 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
     }),
   });
   assert.equal(routeCalls, 1);
-  assert.equal(seen[3].body.model, "gpt-6-sol");
+  assert.equal(seen.filter(({ body }) => body?.model)[2].body.model, "gpt-6-sol");
   assert.equal(readStatus(statusId).metrics.reasoningRequired, 0.91);
 
   const usageReport = await fetch(`http://127.0.0.1:${port}/responses`, {
