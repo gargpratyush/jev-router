@@ -24,6 +24,7 @@ const MODEL_ENV = {
   opus: "JEV_CODEX_STRONG_MODEL",
   fable: "JEV_CODEX_LONG_MODEL",
 };
+const REASONING_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
 export const codexModelOf = (tier) => process.env[MODEL_ENV[tier]] ?? DEFAULT_MODELS[tier];
 
@@ -136,11 +137,42 @@ export function addJevModel(catalog) {
   return catalog;
 }
 
-export function applyCodexTier(body, tier, models = new Map(), model = codexModelOf(tier)) {
+/** Map Jev's normalized reasoning requirement to an effort supported by the routed model. */
+export function selectCodexReasoningEffort({
+  reasoningRequired,
+  supported = [],
+  defaultEffort,
+  requested,
+} = {}) {
+  const known = [...new Set(supported)].filter((effort) => REASONING_EFFORTS.includes(effort));
+  if (!Number.isFinite(reasoningRequired)) {
+    if (!known.length || known.includes(requested)) return requested;
+    return known.includes(defaultEffort) ? defaultEffort : known[0];
+  }
+  const target = reasoningRequired < 0.25
+    ? "low"
+    : reasoningRequired < 0.6
+      ? "medium"
+      : reasoningRequired < 0.85
+        ? "high"
+        : "xhigh";
+  if (!known.length) return requested ?? defaultEffort ?? target;
+  const targetRank = REASONING_EFFORTS.indexOf(target);
+  return known
+    .map((effort) => ({ effort, rank: REASONING_EFFORTS.indexOf(effort) }))
+    .filter(({ rank }) => rank >= targetRank)
+    .sort((a, b) => a.rank - b.rank)[0]?.effort
+    ?? known.sort((a, b) => REASONING_EFFORTS.indexOf(b) - REASONING_EFFORTS.indexOf(a))[0];
+}
+
+export function applyCodexTier(body, tier, models = new Map(), model = codexModelOf(tier), effort) {
   body.model = model;
   const info = models.get(model);
   const efforts = info?.supported_reasoning_levels?.map((level) => level.effort);
-  if (body.reasoning?.effort && efforts?.length && !efforts.includes(body.reasoning.effort)) {
+  if (effort) {
+    body.reasoning ??= {};
+    body.reasoning.effort = effort;
+  } else if (body.reasoning?.effort && efforts?.length && !efforts.includes(body.reasoning.effort)) {
     body.reasoning.effort = info.default_reasoning_level;
   }
   return body;
@@ -153,15 +185,15 @@ export const upstreamFor = (
   apiBaseURL = API_BASE_URL,
 ) => /\/models(?:\?|$)/.test(path) || headers["chatgpt-account-id"] ? chatgptBaseURL : apiBaseURL;
 
-export function jevDecisionEvents({ tier, model = codexModelOf(tier), confidence, reason, warning }) {
+export function jevDecisionEvents({ tier, model = codexModelOf(tier), effort, confidence, reason, warning }) {
   const detail = confidence == null ? reason : `${reason}, confidence ${confidence.toFixed(2)}`;
   const id = `jev-${randomUUID()}`;
   const decision = reason.startsWith("jev-unavailable")
     ? `[Jev] unavailable; using ${model}. Add JEV_API_KEY=... to ~/.jev-router.env and restart jev-codex.`
     : `[Jev] routed this turn to ${model} (${detail}).`;
-  const text = warning
-    ? `${decision}\n[Jev] warning: could not refresh the Codex model catalog: ${warning}`
-    : decision;
+  const details = [decision, ...(effort ? [`Effort: ${effort}`] : [])];
+  if (warning) details.push(`[Jev] warning: could not refresh the Codex model catalog: ${warning}`);
+  const text = details.join("\n");
   const item = {
     type: "message",
     role: "assistant",
@@ -240,6 +272,7 @@ const completedResponse = (frame) => {
 const usageText = (turn) => [
   formatUsage(turn.aggregate),
   `Model: ${turn.model ?? "unavailable"}`,
+  ...(turn.effort ? [`Effort: ${turn.effort}`] : []),
   ...(turn.requests.length > 1 ? [`Requests: ${turn.requests.length}`] : []),
 ].join("\n");
 
@@ -296,12 +329,14 @@ export async function startCodexProxy({
             );
             const available = [...new Set(candidates.map((model) => model.tier))];
             const currentModel = states.get(key)?.model ?? modelForTier(candidates, "opus");
+            const currentEffort = states.get(key)?.effort;
             const current = codexTierOf(currentModel) ?? "opus";
             const prompt = codexNewTurnPrompt(body);
             const explaining = prompt?.includes("<jev-explain>") || /^\$jev-explain\b/i.test(prompt ?? "");
             isUsageCommand = /^\$jev-usage\b/i.test(prompt ?? "");
             let tier = current;
             let model = currentModel;
+            let effort = currentEffort;
             if (prompt && !explaining && !isUsageCommand) {
               const contextTokens = Math.round(JSON.stringify(body.input).length / 4);
               const jev = await route({ prompt, current: currentModel, contextTokens, models: candidates });
@@ -320,11 +355,19 @@ export async function startCodexProxy({
                   : tier === current
                     ? currentModel
                     : modelForTier(candidates, tier);
-              states.set(key, { tier, model });
+              const modelInfo = models.get(model);
+              effort = selectCodexReasoningEffort({
+                reasoningRequired: jev?.metrics?.reasoningRequired,
+                supported: modelInfo?.supported_reasoning_levels?.map((level) => level.effort),
+                defaultEffort: modelInfo?.default_reasoning_level,
+                requested: body.reasoning?.effort,
+              });
+              states.set(key, { tier, model, effort });
               routing = {
                 prompt,
                 tier,
                 model,
+                effort,
                 confidence: jev?.confidence ?? null,
                 metrics: jev?.metrics ?? null,
                 reason: decision.reason,
@@ -335,14 +378,14 @@ export async function startCodexProxy({
               writeDecision(statusId, routing);
               debug(`${key} ${current} -> ${tier} (${decision.reason}) | ${prompt.slice(0, 60)}`);
             }
-            applyCodexTier(body, tier, models, model);
+            applyCodexTier(body, tier, models, model, effort);
             const existingTurn = usageTurns.get(key);
             if (prompt && !explaining && !isUsageCommand) {
               // A fresh prompt normally begins a logical turn. A retransmission while its
               // prior response is still open is a retry and belongs to that same turn.
               usageTurn = existingTurn?.open && existingTurn.prompt === prompt
                 ? existingTurn
-                : { id: `turn-${randomUUID()}`, prompt, model: body.model, at: Date.now(), open: true, requests: [] };
+                : { id: `turn-${randomUUID()}`, prompt, model: body.model, effort: body.reasoning?.effort, at: Date.now(), open: true, requests: [] };
               usageTurns.set(key, usageTurn);
             } else {
               usageTurn = existingTurn;

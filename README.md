@@ -250,7 +250,8 @@ ids are used only until the CLI fetches its catalog.
 
 For Codex, Jev refreshes the account model catalog before routing whenever its in-memory copy is
 missing or more than 24 hours old. The routing choices include each model's context window and
-supported reasoning levels, so Jev can account for those capabilities when selecting a model.
+supported reasoning levels. Jev maps its reasoning-requirement score to a supported effort for
+the selected model, pins that model-and-effort pair for the turn, and reports both in commentary.
 
 ## Compatibility notes
 

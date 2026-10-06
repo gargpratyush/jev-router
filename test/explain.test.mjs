@@ -7,6 +7,7 @@ test("formats the last routing decision", () => {
   const output = formatExplanation({
     prompt: "Explain the router architecture",
     tier: "sonnet",
+    effort: "high",
     confidence: 0.94,
     reason: "jev",
     jev: {
@@ -27,6 +28,7 @@ test("formats the last routing decision", () => {
   assert.match(output, /Context tokens: 6200/);
   assert.match(output, /Recommended tier: SONNET/);
   assert.match(output, /Selected model: SONNET/);
+  assert.match(output, /Reasoning effort: HIGH/);
   assert.match(output, /Confidence: 94%/);
   assert.match(output, /Decision: Jev recommendation/);
 });

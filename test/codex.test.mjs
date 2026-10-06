@@ -13,6 +13,7 @@ import {
   isCodexModelCatalogFresh,
   isCodexAuxiliaryPrompt,
   jevDecisionEvents,
+  selectCodexReasoningEffort,
   startCodexProxy,
   upstreamFor,
 } from "../src/codex-proxy.mjs";
@@ -121,6 +122,16 @@ test("sends exact available GPT models to Jev", () => {
   ]);
 });
 
+test("maps Jev reasoning requirements to supported Codex effort levels", () => {
+  const supported = ["low", "medium", "high", "xhigh"];
+  assert.equal(selectCodexReasoningEffort({ reasoningRequired: 0.1, supported }), "low");
+  assert.equal(selectCodexReasoningEffort({ reasoningRequired: 0.4, supported }), "medium");
+  assert.equal(selectCodexReasoningEffort({ reasoningRequired: 0.7, supported }), "high");
+  assert.equal(selectCodexReasoningEffort({ reasoningRequired: 0.9, supported }), "xhigh");
+  assert.equal(selectCodexReasoningEffort({ reasoningRequired: 0.9, supported: ["low", "high"] }), "high");
+  assert.equal(selectCodexReasoningEffort({ requested: "high", supported }), "high");
+});
+
 test("includes Codex reasoning capabilities in the routing model description", () => {
   const [model] = codexModels(new Map([[
     "gpt-6-sol",
@@ -156,13 +167,14 @@ test("uses unique GPT-6 models for the cold-start fallback", () => {
 });
 
 test("surfaces routing as a native commentary event", () => {
-  const events = jevDecisionEvents({ tier: "opus", confidence: 0.91, reason: "jev" });
+  const events = jevDecisionEvents({ tier: "opus", effort: "high", confidence: 0.91, reason: "jev" });
   assert.match(events, /response\.output_item\.added/);
   assert.match(events, /response\.output_text\.delta/);
   assert.match(events, /response\.output_item\.done/);
   assert.match(events, /"phase":"commentary"/);
   assert.match(events, /\[Jev\] routed this turn to gpt-6-sol/);
   assert.match(events, /confidence 0\.91/);
+  assert.match(events, /Effort: high/);
 
   const warning = jevDecisionEvents({
     tier: "opus",
@@ -202,12 +214,16 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
             visibility: "list",
             supported_in_api: true,
             priority: 2,
+            default_reasoning_level: "low",
+            supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }],
           }, {
             slug: "gpt-6-sol",
             display_name: "GPT-6 Sol",
             visibility: "list",
             supported_in_api: true,
             priority: 3,
+            default_reasoning_level: "medium",
+            supported_reasoning_levels: [{ effort: "low" }, { effort: "medium" }, { effort: "high" }, { effort: "xhigh" }],
           }],
         }));
       }
@@ -268,8 +284,10 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
   assert.equal(seen[0].authorization, "Bearer subscription-token");
   assert.equal(seen[0].account, "acct");
   assert.equal(seen[1].body.model, "gpt-6-sol");
+  assert.equal(seen[1].body.reasoning.effort, "xhigh");
   assert.equal(readStatus(statusId).tier, "opus");
   assert.equal(readStatus(statusId).model, "gpt-6-sol");
+  assert.equal(readStatus(statusId).effort, "xhigh");
   assert.equal(readStatus(statusId).prompt, "debug this race");
   assert.equal(readStatus(statusId).jev.request.state.request, "debug this race");
   assert.equal(readStatus(statusId).history.length, 1);
@@ -340,6 +358,22 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
   assert.match(usageReport, /gpt-6-sol/);
   // The generated title request is a constituent request of the same logical turn.
   assert.match(usageReport, /Total: 24/);
+  assert.equal(routeCalls, 1);
+
+  await fetch(`http://127.0.0.1:${port}/responses`, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "jev-router",
+      prompt_cache_key: "main",
+      input: [
+        { type: "additional_tools", role: "developer", tools: [{}] },
+        { type: "function_call_output", call_id: "call-1", output: "done" },
+      ],
+    }),
+  });
+  assert.equal(seen.at(-1).body.model, "gpt-6-sol");
+  assert.equal(seen.at(-1).body.reasoning.effort, "xhigh");
   assert.equal(routeCalls, 1);
 });
 

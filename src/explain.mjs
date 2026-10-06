@@ -45,6 +45,7 @@ export function formatExplanation(status) {
     row(),
     row(`Recommended tier: ${recommendation.toUpperCase()}`),
     row(`Selected model: ${(status.model ?? status.tier ?? "unknown").toUpperCase()}`),
+    row(`Reasoning effort: ${(status.effort ?? "unknown").toUpperCase()}`),
     row(),
     row(`Confidence: ${status.confidence == null ? "n/a" : `${Math.round(status.confidence * 100)}%`}`),
     row(`Decision: ${decision(status.reason)}`),

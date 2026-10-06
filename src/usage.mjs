@@ -75,6 +75,7 @@ export function formatUsageReport(turns = []) {
   return [
     formatUsage(latest.aggregate, "[Jev usage — most recent turn]"),
     `Model: ${latest.model ?? "unavailable"}`,
+    ...(latest.effort ? [`Effort: ${latest.effort}`] : []),
     "",
     formatUsage(cumulative, "[Jev usage — current session]"),
     "",
