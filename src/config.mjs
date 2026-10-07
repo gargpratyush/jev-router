@@ -45,6 +45,14 @@ export const tierOf = (model) =>
 export const availableTiers = () =>
   TIER_NAMES.filter((n) => n !== "fable" || process.env.JEV_ALLOW_FABLE === "1");
 
+/**
+ * Even a trusted whole-prompt override cannot reach fable without this second explicit
+ * opt-in on top of JEV_ALLOW_FABLE: fable bills extra usage credits, and a typed command
+ * can still be dictated by something the user read. Jev's own recommendations are gated by
+ * JEV_ALLOW_FABLE alone, as before.
+ */
+export const fableOverrideAllowed = () => process.env.JEV_ALLOW_FABLE_OVERRIDE === "1";
+
 export const THRESHOLDS = {
   /** Below this Jev confidence we refuse to downgrade and cap upgrades at `uncertainCeiling`. */
   minConfidence: 0.3,
@@ -83,16 +91,22 @@ const COMPLEXITY_SCALE = [
 
 export const COMPLEXITY_MAX_SCORE = COMPLEXITY_SCALE.length - 1;
 
-/** Phrases that mean "the human already decided", checked against the raw prompt. */
+/**
+ * Phrases that mean "the human already decided". The phrase must be the whole prompt, not
+ * merely appear in it: the proxy sees the composed API request, where text the user typed is
+ * indistinguishable from text they quoted or the agent read in, so a substring match would
+ * let any document containing "use fable" retier the session. A turn consisting of exactly
+ * the command can only have been entered deliberately.
+ */
 export const OVERRIDE_PATTERNS = TIERS.map((t) => ({
   tier: t.name,
   re: new RegExp(
-    `\\b(?:use|switch to|with|on)\\s+(?:${{
+    `^\\s*(?:use|switch to|with|on)\\s+(?:${{
       haiku: "haiku|fast|luna",
       sonnet: "sonnet|balanced|terra",
       opus: "opus|strong|sol",
       fable: "fable|long|astra",
-    }[t.name]})\\b`,
+    }[t.name]})\\s*$`,
     "i",
   ),
 }));

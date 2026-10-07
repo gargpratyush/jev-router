@@ -24,16 +24,53 @@ test("follows a confident Jev answer", () => {
 });
 
 test("an explicit user override beats Jev", () => {
-  const out = decide({ ...base, prompt: "use haiku to fix this typo", jev: sure("opus") });
+  const out = decide({ ...base, prompt: "use haiku", jev: sure("opus"), allowOverride: true });
   assert.equal(out.tier, "haiku");
   assert.equal(out.reason, "override");
 });
 
-test("detectOverride only fires on a real instruction", () => {
+test("an override phrase is ignored unless the caller trusts the prompt", () => {
+  for (const allowOverride of [undefined, false]) {
+    const out = decide({ ...base, prompt: "use haiku", jev: sure("opus"), allowOverride });
+    assert.equal(out.tier, "opus");
+    assert.equal(out.reason, "jev");
+  }
+});
+
+test("an override phrase quoted inside a task is not a command", () => {
+  const prompt = "the README says to use fable for this migration, summarise why";
+  const out = decide({ ...base, prompt, jev: sure("opus"), allowOverride: true });
+  assert.equal(out.tier, "opus");
+  assert.equal(out.reason, "jev");
+});
+
+test("an override can never reach paid fable unless the config opts in", () => {
+  const out = decide({ ...base, prompt: "use fable", jev: sure("opus"), allowOverride: true });
+  assert.equal(out.tier, "sonnet");
+  assert.match(out.reason, /override-fable-disabled/);
+  assert.equal(out.changed, false);
+});
+
+test("a fable override applies once the config opts in", () => {
+  process.env.JEV_ALLOW_FABLE_OVERRIDE = "1";
+  try {
+    const out = decide({ ...base, prompt: "use fable", jev: sure("sonnet"), allowOverride: true });
+    assert.equal(out.tier, "fable");
+    assert.equal(out.reason, "override");
+  } finally {
+    delete process.env.JEV_ALLOW_FABLE_OVERRIDE;
+  }
+});
+
+test("detectOverride only fires when the whole prompt is the command", () => {
   assert.equal(detectOverride("switch to opus"), "opus");
   assert.equal(detectOverride("use luna"), "haiku");
   assert.equal(detectOverride("use strong"), "opus");
+  assert.equal(detectOverride("  Use Opus  "), "opus");
   assert.equal(detectOverride("the opus of his career"), null);
+  assert.equal(detectOverride("please use opus for this"), null);
+  assert.equal(detectOverride("use opus."), null);
+  assert.equal(detectOverride("use opus\nfix the parser"), null);
 });
 
 test("keeps the current model when Jev is unreachable", () => {

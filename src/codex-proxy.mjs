@@ -207,6 +207,9 @@ export async function startCodexProxy({
                 current,
                 available,
                 contextTokens,
+                // The whole prompt must be the override command for this to matter, which
+                // only the user can do; see OVERRIDE_PATTERNS.
+                allowOverride: true,
               });
               tier = decision.tier;
               model =

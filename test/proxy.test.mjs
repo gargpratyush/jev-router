@@ -181,6 +181,40 @@ test("a routed request without metadata is recorded under the conversation key",
   assert.equal(status.confidence, 0.77);
 });
 
+test("a whole-prompt override retiers the turn, a quoted phrase does not", async (t) => {
+  const seen = [];
+  const upstream = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      seen.push(JSON.parse(Buffer.concat(chunks)));
+      res.setHeader("content-type", "application/json");
+      res.end('{"id":"msg_1","type":"message"}');
+    });
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  t.after(() => upstream.close());
+
+  const { port, close } = await startProxy({
+    upstreamURL: `http://127.0.0.1:${upstream.address().port}`,
+    route: async () => ({ choice: "claude-sonnet-5", confidence: 0.91, ms: 1 }),
+  });
+  t.after(close);
+
+  const post = (content) =>
+    fetch(`http://127.0.0.1:${port}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "jev-router", tools: [{ name: "Bash" }], messages: [{ role: "user", content }] }),
+    });
+
+  await post("use haiku");
+  assert.equal(seen[0].model, "claude-haiku-4-5-20251001", "the user's own command wins");
+
+  await post("the failing test output says to use opus next, explain why");
+  assert.equal(seen[1].model, "claude-sonnet-5", "a quoted phrase is not a command");
+});
+
 const withTools = (messages) => ({ tools: [{ name: "Bash" }], messages });
 
 test("converts a draft-04 boolean exclusiveMinimum into a draft 2020-12 number", () => {

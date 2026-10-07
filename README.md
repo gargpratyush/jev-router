@@ -190,12 +190,14 @@ One Jev call per fresh user turn selects a shared abstract tier:
 
 `src/policy.mjs` then applies these rules:
 
-- explicit requests such as `use opus`, `use luna`, or `use strong` win;
+- a turn that is exactly an explicit request such as `use opus`, `use luna`, or `use strong`
+  wins; the phrase appearing inside a larger prompt does nothing;
 - failure, timeout, or an unrecognised Jev answer keeps the current model;
 - low confidence never downgrades and caps upgrades at the balanced tier;
 - large conversations refuse downgrades that would waste more prompt-cache work than they save;
 - unavailable tiers step upward rather than silently choosing a weaker model;
-- the long tier is disabled unless `JEV_ALLOW_FABLE=1`.
+- the long tier is disabled unless `JEV_ALLOW_FABLE=1`, and an explicit request cannot reach
+  it at all unless `JEV_ALLOW_FABLE_OVERRIDE=1` is also set.
 
 Tool-loop continuations keep the tier chosen at the start of the turn. Main conversations and
 sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks the CLI.
@@ -206,6 +208,7 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | --- | --- | --- |
 | `JEV_API_KEY` | Both | Enables routing. `TYPESAFE_API_KEY` also works. |
 | `JEV_ALLOW_FABLE` | Both | Enables the opt-in long tier. |
+| `JEV_ALLOW_FABLE_OVERRIDE` | Both | Also lets an explicit whole-turn request switch into the long tier. |
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
 | `JEV_NO_STATUSLINE` | Claude | Disables the injected Claude status line. |
@@ -252,7 +255,8 @@ injection, and decision display.
 
 ## Limitations
 
-- The user's prompt text is sent to TypeSafe for the routing decision. Nothing else is.
+- The prompt text itself is never sent to TypeSafe: the routing decision is made from bounded
+  structural facts about it (length, lines, code/file markers) plus session metadata.
 - Jev adds latency only to the first request of a turn; tool-loop continuations add none.
 - Claude Code and Codex request formats are not public contracts. Use `JEV_DUMP` to diagnose
   upstream changes.

@@ -233,6 +233,9 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
                 current,
                 available,
                 contextTokens,
+                // The whole prompt must be the override command for this to matter, which
+                // only the user can do; see OVERRIDE_PATTERNS.
+                allowOverride: true,
               });
               const model =
                 shouldUseExactModel(reason, chosen?.tier, tier)

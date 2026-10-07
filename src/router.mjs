@@ -24,6 +24,21 @@ function getClient() {
 }
 
 /**
+ * Bounded structural facts about a prompt. The prompt text itself never enters Jev's state:
+ * it is untrusted (anything the agent read can be in it), so Jev judges the task from these
+ * facts plus the session and environment fields rather than from the raw request.
+ */
+export function promptFacts(prompt = "") {
+  return {
+    chars: prompt.length,
+    lines: prompt.split("\n").length,
+    has_code: /```|^\s{4}\S/m.test(prompt),
+    mentions_file: /[\w.-]+\.(?:[cm]?[jt]s|py|rs|go|java|rb|md|json|ya?ml|toml)\b/i.test(prompt),
+    is_question: /\?/.test(prompt),
+  };
+}
+
+/**
  * Asks Jev which tier fits this prompt. Returns null on any failure, which the policy
  * layer reads as "keep the current model" — routing must never block a prompt.
  *
@@ -36,7 +51,7 @@ export async function askJev({ prompt, current, contextTokens, models }) {
   const deadline = setTimeout(() => abort.abort(), THRESHOLDS.jevDeadlineMs);
   const request = {
     state: {
-      request: prompt,
+      request: promptFacts(prompt),
       session: { current_model: current, context_tokens: contextTokens },
       environment: { available_models: models.map((model) => model.id) },
     },
