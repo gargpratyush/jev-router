@@ -5,9 +5,9 @@ import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startProxy } from "../src/proxy.mjs";
-import { AUTO_MODEL } from "../src/config.mjs";
+import { AUTO_MODEL } from "../src/lib/config.mjs";
 import { readSavedModel, restoreSavedModel } from "../src/settings.mjs";
-import { LOG_FILE } from "../src/log.mjs";
+import { LOG_FILE } from "../src/lib/log.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(HERE);

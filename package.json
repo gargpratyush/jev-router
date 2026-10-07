@@ -3,6 +3,10 @@
   "version": "0.3.0",
   "description": "Runs coding CLIs and routes each turn to the cheapest sufficient model using TypeSafe Jev",
   "type": "module",
+  "exports": {
+    ".": "./src/adapters/index.mjs",
+    "./conformance": "./src/adapters/conformance.mjs"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gargpratyush/jev-router.git"
@@ -23,6 +27,7 @@
     "bin",
     "skills",
     "src",
+    "docs/adapters.md",
     "README.md"
   ],
   "keywords": [

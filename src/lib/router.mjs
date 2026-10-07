@@ -29,7 +29,13 @@ function getClient() {
  *
  * @returns {Promise<?{choice: string, confidence: number, probabilities: object, metrics: object, ms: number}>}
  */
-export async function askJev({ prompt, current, contextTokens, models }) {
+export async function askJev({
+  prompt,
+  current,
+  contextTokens,
+  models,
+  contextWindow = CONTEXT_WINDOW_TOKENS,
+}) {
   if (!models?.length) return null;
   const started = Date.now();
   const abort = new AbortController();
@@ -53,7 +59,7 @@ export async function askJev({ prompt, current, contextTokens, models }) {
         taskComplexity: task_complexity.score / COMPLEXITY_MAX_SCORE,
         reasoningRequired: reasoning_required.score / COMPLEXITY_MAX_SCORE,
         toolComplexity: tool_complexity.score / COMPLEXITY_MAX_SCORE,
-        contextSize: Math.min(contextTokens / CONTEXT_WINDOW_TOKENS, 1),
+        contextSize: Math.min(contextTokens / contextWindow, 1),
       },
       ms: Date.now() - started,
     };

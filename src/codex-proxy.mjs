@@ -1,22 +1,18 @@
-import http from "node:http";
-import https from "node:https";
 import { createHash, randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { availableTiers, shouldUseExactModel } from "./config.mjs";
-import { askJev } from "./router.mjs";
-import { decide } from "./policy.mjs";
-import { log } from "./log.mjs";
-import { writeDecision, writeStatus } from "./status.mjs";
+import { availableTiers } from "./lib/config.mjs";
+import { genericProxy } from "./generic-proxy.mjs";
 
 const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const API_BASE_URL = "https://api.openai.com/v1";
 export const CODEX_AUTO_MODEL = "jev-router";
+
 const DEFAULT_MODELS = {
   haiku: "gpt-5.6-luna",
   sonnet: "gpt-5.6-terra",
   opus: "gpt-5.6-sol",
   fable: "gpt-6-astra",
 };
+
 const MODEL_ENV = {
   haiku: "JEV_CODEX_FAST_MODEL",
   sonnet: "JEV_CODEX_BALANCED_MODEL",
@@ -26,7 +22,7 @@ const MODEL_ENV = {
 
 export const codexModelOf = (tier) => process.env[MODEL_ENV[tier]] ?? DEFAULT_MODELS[tier];
 
-export function codexTierOf(model) {
+function codexTierOf(model) {
   const configured = Object.keys(DEFAULT_MODELS).find((tier) => codexModelOf(tier) === model);
   if (configured) return configured;
   if (/(?:astra|fable|long)/i.test(model ?? "")) return "fable";
@@ -35,7 +31,9 @@ export function codexTierOf(model) {
   return /^gpt-/i.test(model ?? "") ? "sonnet" : null;
 }
 
-/** Exact GPT models in Codex's account catalog; configured ids are the cold-start fallback. */
+/**
+ * Exact GPT models in Codex's catalog; configured ids are the cold-start fallback.
+ */
 export function codexModels(models = new Map()) {
   const available = [...models.values()]
     .filter((model) => model.slug !== CODEX_AUTO_MODEL && model.supported_in_api !== false)
@@ -58,29 +56,29 @@ export function codexModels(models = new Map()) {
       }));
 }
 
-const modelForTier = (models, tier) =>
-  models.find((model) => model.tier === tier)?.id ?? codexModelOf(tier);
-
-const textOf = (content) => {
+function textOf(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
     .filter((item) => item?.type === "text" || item?.type === "input_text")
     .map((item) => item.text)
     .join("\n");
-};
+}
 
-const cleanPrompt = (text) =>
-  text
+function cleanPrompt(text) {
+  return text
     .replace(/<system[-_]reminder>[\s\S]*?<\/system[-_]reminder>/gi, "")
     .replace(/<current_datetime>[\s\S]*?<\/current_datetime>/gi, "")
     .replace(/<environment_context>[\s\S]*?<\/environment_context>/gi, "")
     .trim();
+}
 
 export const isCodexAuxiliaryPrompt = (prompt) =>
   /^Generate a concise, single-line task title\b/i.test(prompt);
 
-/** User text that starts a new Codex turn, or null for tool continuations. */
+/**
+ * User text that starts a new Codex turn, or null for tool continuations.
+ */
 export function codexNewTurnPrompt(body) {
   if (!Array.isArray(body?.input)) return null;
   if (!body.input.some((item) => item?.type === "additional_tools")) return null;
@@ -93,6 +91,9 @@ export function codexNewTurnPrompt(body) {
   return null;
 }
 
+/**
+ * Stable conversation key from prompt_cache_key or first user message.
+ */
 export function codexConversationKey(body) {
   const stable =
     body?.prompt_cache_key ??
@@ -101,6 +102,9 @@ export function codexConversationKey(body) {
   return createHash("sha1").update(String(stable)).digest("hex").slice(0, 12);
 }
 
+/**
+ * Add the Jev Router sentinel model to Codex's model catalog.
+ */
 export function addJevModel(catalog) {
   if (!Array.isArray(catalog?.models) || catalog.models.some((model) => model.slug === CODEX_AUTO_MODEL)) {
     return catalog;
@@ -123,6 +127,9 @@ export function addJevModel(catalog) {
   return catalog;
 }
 
+/**
+ * Apply tier to request, clamping reasoning effort if needed.
+ */
 export function applyCodexTier(body, tier, models = new Map(), model = codexModelOf(tier)) {
   body.model = model;
   const info = models.get(model);
@@ -133,6 +140,9 @@ export function applyCodexTier(body, tier, models = new Map(), model = codexMode
   return body;
 }
 
+/**
+ * Determine upstream URL based on request.
+ */
 export const upstreamFor = (
   headers,
   path = "",
@@ -140,6 +150,9 @@ export const upstreamFor = (
   apiBaseURL = API_BASE_URL,
 ) => /\/models(?:\?|$)/.test(path) || headers["chatgpt-account-id"] ? chatgptBaseURL : apiBaseURL;
 
+/**
+ * Format routing decision as SSE events for inline display.
+ */
 export function jevDecisionEvents({ tier, model = codexModelOf(tier), confidence, reason }) {
   const detail = confidence == null ? reason : `${reason}, confidence ${confidence.toFixed(2)}`;
   const id = `jev-${randomUUID()}`;
@@ -161,163 +174,105 @@ export function jevDecisionEvents({ tier, model = codexModelOf(tier), confidence
   return events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
 }
 
-const debug = (line) => process.env.JEV_DEBUG && log(line);
-const upstreamPath = (base, path) => `${new URL(base).pathname.replace(/\/$/, "")}${path}`;
+/**
+ * Adapter for Codex / OpenAI API.
+ */
+function createCodexAdapter(catalogMap, statusId = "") {
+  return {
+    contextWindow: 128000, // Codex context window
+    statusId,
 
+    isRoutingRequest(req, body) {
+      return req.method === "POST" && /\/responses(?:\?|$)/.test(req.url ?? "") && body.model === CODEX_AUTO_MODEL;
+    },
+
+    // Only a real user turn reflects the user's choice. Codex's auxiliary calls (titles,
+    // summaries), tool continuations and explain turns must not flip the status to manual.
+    isManualChoice(req, body) {
+      if (req.method !== "POST" || !/\/responses(?:\?|$)/.test(req.url ?? "")) return false;
+      if (body.model === CODEX_AUTO_MODEL) return false;
+      const prompt = codexNewTurnPrompt(body);
+      return !!prompt && !prompt.includes("<jev-explain>") && !/^\$jev-explain\b/i.test(prompt);
+    },
+
+    conversationKey(body) {
+      return codexConversationKey(body);
+    },
+
+    newTurnPrompt(body) {
+      return codexNewTurnPrompt(body);
+    },
+
+    getModels() {
+      return codexModels(catalogMap);
+    },
+
+    // The account's own catalog wins, so a fallback never names a model it cannot reach.
+    getDefaultModel(tier) {
+      return codexModels(catalogMap).find((model) => model.tier === tier)?.id ?? codexModelOf(tier);
+    },
+
+    contextTokens(body) {
+      return Math.round(JSON.stringify(body.input ?? "").length / 4);
+    },
+
+
+    applyTier(body, tier, model) {
+      applyCodexTier(body, tier, catalogMap, model);
+    },
+
+    decorateModelCatalog(catalog) {
+      addJevModel(catalog);
+      // Store models in the map for later use
+      for (const model of catalog.models) {
+        catalogMap.set(model.slug, model);
+      }
+    },
+
+    decorateResponse(res, response, routing) {
+      const responseHeaders = { ...response.headers };
+      delete responseHeaders["content-length"];
+      res.writeHead(response.statusCode, responseHeaders);
+
+      let pending = "";
+      let inspected = false;
+      response.on("data", (chunk) => {
+        if (inspected) return void res.write(chunk);
+        pending += chunk.toString();
+        const end = pending.indexOf("\n\n");
+        if (end < 0) return;
+        const first = pending.slice(0, end + 2);
+        res.write(first);
+        const isSSE = /^(?:event|data):/m.test(first);
+        if (isSSE) res.write(jevDecisionEvents(routing));
+        res.write(pending.slice(end + 2));
+        pending = "";
+        inspected = true;
+      });
+      response.on("end", () => {
+        if (pending) res.write(pending);
+        res.end();
+      });
+    },
+  };
+}
+
+/**
+ * Start Codex proxy with model catalog collection.
+ */
 export async function startCodexProxy({
   chatgptBaseURL = CHATGPT_BASE_URL,
   apiBaseURL = API_BASE_URL,
-  route = askJev,
+  route,
   statusId = "",
 } = {}) {
-  const states = new Map();
   const models = new Map();
+  const adapter = createCodexAdapter(models, statusId);
 
-  const server = http.createServer((req, res) => {
-    const chunks = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", async () => {
-      let out = Buffer.concat(chunks);
-      let routing;
-      if (req.method === "POST" && /\/responses(?:\?|$)/.test(req.url ?? "")) {
-        try {
-          const body = JSON.parse(out.toString());
-          if (process.env.JEV_DUMP) {
-            writeFileSync(`${process.env.JEV_DUMP}.${Date.now()}.json`, JSON.stringify(body, null, 2));
-          }
-          if (body.model === CODEX_AUTO_MODEL) {
-            const key = codexConversationKey(body);
-            const candidates = codexModels(models).filter((model) =>
-              availableTiers().includes(model.tier),
-            );
-            const available = [...new Set(candidates.map((model) => model.tier))];
-            const currentModel = states.get(key)?.model ?? modelForTier(candidates, "opus");
-            const current = codexTierOf(currentModel) ?? "opus";
-            const prompt = codexNewTurnPrompt(body);
-            const explaining = prompt?.includes("<jev-explain>") || /^\$jev-explain\b/i.test(prompt ?? "");
-            let tier = current;
-            let model = currentModel;
-            if (prompt && !explaining) {
-              const contextTokens = Math.round(JSON.stringify(body.input).length / 4);
-              const jev = await route({ prompt, current: currentModel, contextTokens, models: candidates });
-              const chosen = candidates.find((candidate) => candidate.id === jev?.choice);
-              const decision = decide({
-                prompt,
-                jev: jev && { ...jev, choice: chosen?.tier },
-                current,
-                available,
-                contextTokens,
-              });
-              tier = decision.tier;
-              model =
-                shouldUseExactModel(decision.reason, chosen?.tier, tier)
-                  ? chosen.id
-                  : tier === current
-                    ? currentModel
-                    : modelForTier(candidates, tier);
-              states.set(key, { tier, model });
-              routing = {
-                prompt,
-                tier,
-                model,
-                confidence: jev?.confidence ?? null,
-                metrics: jev?.metrics ?? null,
-                reason: decision.reason,
-                jev: jev ? { request: jev.request, response: jev.response } : null,
-                at: Date.now(),
-              };
-              writeDecision(statusId, routing);
-              debug(`${key} ${current} -> ${tier} (${decision.reason}) | ${prompt.slice(0, 60)}`);
-            }
-            applyCodexTier(body, tier, models, model);
-          } else {
-            const prompt = codexNewTurnPrompt(body);
-            const explaining = prompt?.includes("<jev-explain>") || /^\$jev-explain\b/i.test(prompt ?? "");
-            if (prompt && !explaining) writeStatus(statusId, { manual: true, at: Date.now() });
-          }
-          out = Buffer.from(JSON.stringify(body));
-        } catch (err) {
-          debug(`codex passthrough, could not process body: ${err.message}`);
-        }
-      }
-
-      const base = upstreamFor(req.headers, req.url, chatgptBaseURL, apiBaseURL);
-      const target = new URL(base);
-      const transport = target.protocol === "http:" ? http : https;
-      const headers = { ...req.headers, host: target.host };
-      delete headers["content-length"];
-      const upstream = transport.request(
-        {
-          hostname: target.hostname,
-          port: target.port || undefined,
-          path: upstreamPath(base, req.url ?? "/"),
-          method: req.method,
-          headers,
-        },
-        (response) => {
-          const responseHeaders = { ...response.headers };
-          const isModels = req.method === "GET" && /\/models(?:\?|$)/.test(req.url ?? "");
-          if (isModels) {
-            const body = [];
-            response.on("data", (chunk) => body.push(chunk));
-            response.on("end", () => {
-              let data = Buffer.concat(body);
-              try {
-                const catalog = addJevModel(JSON.parse(data.toString()));
-                for (const model of catalog.models) models.set(model.slug, model);
-                data = Buffer.from(JSON.stringify(catalog));
-                delete responseHeaders["content-length"];
-              } catch (err) {
-                debug(`could not extend Codex model catalog: ${err.message}`);
-              }
-              res.writeHead(response.statusCode, responseHeaders);
-              res.end(data);
-            });
-            return;
-          }
-
-          const inspectForDecision = routing && response.statusCode >= 200 && response.statusCode < 300;
-          if (inspectForDecision) delete responseHeaders["content-length"];
-          res.writeHead(response.statusCode, responseHeaders);
-          if (!inspectForDecision) {
-            response.pipe(res);
-            return;
-          }
-          let pending = "";
-          let inspected = false;
-          response.on("data", (chunk) => {
-            if (inspected) return void res.write(chunk);
-            pending += chunk.toString();
-            const end = pending.indexOf("\n\n");
-            if (end < 0) return;
-            const first = pending.slice(0, end + 2);
-            res.write(first);
-            const isSSE = /^(?:event|data):/m.test(first);
-            if (isSSE) res.write(jevDecisionEvents(routing));
-            debug(`codex decision display ${isSSE ? "inject" : "skip"}`);
-            res.write(pending.slice(end + 2));
-            pending = "";
-            inspected = true;
-          });
-          response.on("end", () => {
-            if (pending) {
-              debug("codex decision display skip");
-              res.write(pending);
-            }
-            res.end();
-          });
-        },
-      );
-      upstream.on("error", (err) => {
-        debug(`codex upstream error: ${err.message}`);
-        if (!res.headersSent) res.writeHead(502, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: { message: err.message, type: "proxy_error" } }));
-      });
-      if (out.length) upstream.write(out);
-      upstream.end();
-    });
+  return genericProxy({
+    adapter,
+    upstreamURL: (req) => upstreamFor(req.headers, req.url, chatgptBaseURL, apiBaseURL),
+    route,
+    catalog: models,
   });
-
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  return { port: server.address().port, close: () => server.close() };
 }

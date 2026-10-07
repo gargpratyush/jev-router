@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { AUTO_MODEL } from "./config.mjs";
+import { AUTO_MODEL } from "./lib/config.mjs";
 
 export const USER_SETTINGS = join(homedir(), ".claude", "settings.json");
 
