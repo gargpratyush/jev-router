@@ -27,7 +27,7 @@ flowchart TB
   auto --> loopback
   manual --> loopback
 
-  subgraph proxy["Loopback proxy — src/proxy.mjs"]
+  subgraph proxy["Loopback proxy — src/generic-proxy.mjs + Claude adapter in src/proxy.mjs"]
     direction TB
     loopback["Receive HEAD or /v1/messages request"]
     loopback --> head{"HEAD probe?"}
@@ -50,7 +50,7 @@ flowchart TB
     publish --> forward["Forward request to api.anthropic.com\nPreserve Claude Code authorization headers\nstream upstream response unchanged"]
   end
 
-  subgraph routing["Routing — src/router.mjs + src/policy.mjs"]
+  subgraph routing["Routing — src/lib/router.mjs + src/lib/policy.mjs"]
     direction TB
     jev["TypeSafe / Jev systemOne call\nSends only fresh user prompt plus:\ncurrent tier, approximate context, available tiers"]
     policy["Policy resolves final tier\n• prompt override wins\n• failure / malformed answer: keep current\n• low confidence: no downgrade; upgrades capped at sonnet\n• large context: no downgrade that rebuilds cache\n• unavailable tier: choose nearest stronger available\n• fable requires JEV_ALLOW_FABLE=1"]
@@ -59,7 +59,7 @@ flowchart TB
   forward --> anthropic["Anthropic API"]
   anthropic --> claude
 
-  subgraph visibility["Routing visibility — status.mjs + jev-statusline.mjs"]
+  subgraph visibility["Routing visibility — src/lib/status.mjs + jev-statusline.mjs"]
     direction TB
     statusFile["Temp file: $TMPDIR/jev-claude/<session>.json"]
     statusLine["Claude Code status-line command\nReads session file and renders:\n⚡ tier + confidence, or ⏸ manual"]

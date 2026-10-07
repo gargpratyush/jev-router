@@ -1,42 +1,27 @@
 // Every routing decision knob lives here, so the whole policy is reviewable in one file.
+// Nothing here names a vendor: each harness maps these tier names onto its own models, the
+// way `./tiers/claude.mjs` and `src/codex-proxy.mjs` do.
 import { choice, score } from "@typesafe-ai/sdk";
 
 /**
- * Model tiers, cheapest first. `id` is what goes into the API request body; `family` is the
- * substring used to recognise whatever model Claude Code asked for, which may be an older
- * version within the same tier such as `claude-sonnet-4-6`. The capability flags come from
- * the Agent SDK's model catalogue: Haiku supports neither adaptive thinking nor effort, so
- * those fields have to be stripped when routing down to it.
+ * The tier vocabulary shared by every harness, cheapest first. These happen to read as
+ * Anthropic product names, but they are used purely as ordered capability labels: Codex maps
+ * the same four names onto GPT models. A harness supplies its own table keyed by these.
  */
-export const TIERS = [
-  { name: "haiku", id: "claude-haiku-4-5-20251001", family: "haiku", thinking: false, effort: false },
-  { name: "sonnet", id: "claude-sonnet-5", family: "sonnet", thinking: true, effort: true },
-  { name: "opus", id: "claude-opus-5", family: "opus", thinking: true, effort: true },
-  { name: "fable", id: "claude-fable-5-1", family: "fable", thinking: true, effort: true },
-];
-
-export const TIER_NAMES = TIERS.map((t) => t.name);
+export const TIER_NAMES = ["haiku", "sonnet", "opus", "fable"];
 
 export const rankOf = (name) => TIER_NAMES.indexOf(name);
 
-export const idOf = (name) => TIERS.find((t) => t.name === name)?.id;
-
-export const tierSpec = (name) => TIERS.find((t) => t.name === name);
-
 /**
- * Sentinel model id offered as an extra row in Claude Code's /model picker. Claude Code
- * sends it verbatim because it does not validate model names behind a custom base URL, so
- * its presence in a request is an exact signal that the user wants this turn routed. Any
- * other model means the user picked one themselves and it must be passed straight through.
+ * Sentinel model id offered as an extra row in the harness's model picker. A CLI sends it
+ * verbatim because it does not validate model names behind a custom base URL, so its
+ * presence in a request is an exact signal that the user wants this turn routed. Any other
+ * model means the user picked one themselves and it must be passed straight through.
  */
 export const AUTO_MODEL = "jev-router";
 
 /** Whether a request should be routed, or passed through as the user's own choice. */
 export const isAuto = (model) => model === AUTO_MODEL;
-
-/** Tier name for a model string Claude Code sent, or null if we don't recognise it. */
-export const tierOf = (model) =>
-  TIERS.find((t) => typeof model === "string" && model.includes(t.family))?.name ?? null;
 
 /**
  * Fable bills extra usage credits, so it is opt-in. Everything else is covered by a normal
@@ -66,6 +51,11 @@ export const THRESHOLDS = {
   jevMaxRetries: 1,
 };
 
+/**
+ * Default context window used to express context size as a fraction for Jev. Harnesses whose
+ * models have a different window pass their own to `askJev`; `./tiers/claude.mjs` re-states
+ * Anthropic's so the Claude adapter reads in one place.
+ */
 export const CONTEXT_WINDOW_TOKENS = 200000;
 
 const COMPLEXITY_SCALE = [
@@ -84,15 +74,15 @@ const COMPLEXITY_SCALE = [
 export const COMPLEXITY_MAX_SCORE = COMPLEXITY_SCALE.length - 1;
 
 /** Phrases that mean "the human already decided", checked against the raw prompt. */
-export const OVERRIDE_PATTERNS = TIERS.map((t) => ({
-  tier: t.name,
+export const OVERRIDE_PATTERNS = TIER_NAMES.map((name) => ({
+  tier: name,
   re: new RegExp(
     `\\b(?:use|switch to|with|on)\\s+(?:${{
       haiku: "haiku|fast|luna",
       sonnet: "sonnet|balanced|terra",
       opus: "opus|strong|sol",
       fable: "fable|long|astra",
-    }[t.name]})\\b`,
+    }[name]})\\b`,
     "i",
   ),
 }));

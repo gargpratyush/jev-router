@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Status line for Claude Code. Claude Code pipes session JSON on stdin and renders whatever
 // this prints. See https://code.claude.com/docs/en/statusline
-import { readStatus } from "../src/status.mjs";
+import { readStatus } from "../src/lib/status.mjs";
 
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
