@@ -188,7 +188,7 @@ One Jev call per fresh user turn selects a shared abstract tier:
 | Strong | Opus | `gpt-5.6-sol` |
 | Long | Fable | `gpt-6-astra` |
 
-`src/policy.mjs` then applies these rules:
+`src/lib/policy.mjs` then applies these rules:
 
 - explicit requests such as `use opus`, `use luna`, or `use strong` win;
 - failure, timeout, or an unrecognised Jev answer keeps the current model;
@@ -217,7 +217,8 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 Existing environment variables have highest precedence, followed by `.env` in the launch
 directory, `~/.jev-router.env`, and the legacy `~/.jev-claude.env`.
 
-Tier definitions, Jev's question, confidence thresholds, and timeouts live in `src/config.mjs`.
+Jev's question, confidence thresholds, and timeouts live in `src/lib/config.mjs`; the Claude tier
+table is in `src/lib/tiers/claude.mjs` and the Codex one in `src/codex-proxy.mjs`.
 Both launchers send Jev the exact models in the signed-in account's native catalog, so model
 versions such as `claude-opus-4-8` and `claude-opus-5` remain separate choices. Static model
 ids are used only until the CLI fetches its catalog.
@@ -233,6 +234,32 @@ ids are used only until the CLI fetches its catalog.
   the event stream from its first frame.
 - Codex workspace-specific enterprise origins are internal to its built-in provider and
   cannot be reproduced by a custom provider.
+
+## Use as a library
+
+The routing core is also a package API for other harnesses, orchestrators, and agent loops.
+The package is ESM-only, requires Node.js 20.12 or newer, and exposes two entry points:
+
+| Import | Use it when |
+| --- | --- |
+| `routeTurn` from `jev-router` | You own the agent loop and the provider call. One call returns the tier, exact model, reason, and confidence for a turn, with no HTTP hop. |
+| `genericProxy` and `defineAdapter` from `jev-router` | The harness is a CLI you do not control but it accepts a custom API base URL. An adapter maps its wire format onto the shared pipeline. |
+| `runAdapterConformance` from `jev-router/conformance` | You wrote an adapter and want to test it against the same HTTP contract the bundled Claude Code and Codex adapters pass. |
+
+```js
+import { routeTurn } from "jev-router";
+
+const decision = await routeTurn({
+  prompt, current: "sonnet", currentModel, models, contextTokens, contextWindow,
+  getDefaultModel: (tier) => defaults[tier],
+});
+// decision.tier, decision.model, decision.reason, decision.confidence
+```
+
+Only these entry points are public. Deep imports such as `jev-router/src/lib/router.mjs` are
+blocked by the package exports map. See [docs/adapters.md](docs/adapters.md) for the adapter
+contract and [examples/orchestrator](examples/orchestrator/) for runnable proxy and native
+examples.
 
 ## Development
 

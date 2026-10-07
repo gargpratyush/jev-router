@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decide, detectOverride } from "../src/policy.mjs";
-import { QUESTIONS, shouldUseExactModel } from "../src/config.mjs";
+import { decide, detectOverride } from "../../src/lib/policy.mjs";
+import { QUESTIONS, shouldUseExactModel } from "../../src/lib/config.mjs";
 
 const ALL = ["haiku", "sonnet", "opus", "fable"];
 const sure = (choice) => ({ choice, confidence: 0.95 });

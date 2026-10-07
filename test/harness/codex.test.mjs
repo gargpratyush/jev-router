@@ -14,9 +14,83 @@ import {
   jevDecisionEvents,
   startCodexProxy,
   upstreamFor,
-} from "../src/codex-proxy.mjs";
-import { codexArgs, installCodexSkill } from "../src/codex-cli.mjs";
-import { readStatus } from "../src/status.mjs";
+} from "../../src/codex-proxy.mjs";
+import { codexArgs, installCodexSkill } from "../../src/codex-cli.mjs";
+import { readStatus } from "../../src/lib/status.mjs";
+import { runAdapterConformance } from "../../src/adapters/conformance.mjs";
+
+const codexTools = { type: "additional_tools", role: "developer", tools: [{}] };
+
+runAdapterConformance({
+  name: "Codex",
+  startProxy: ({ upstreamURL, route, statusId }) => startCodexProxy({
+    chatgptBaseURL: `${upstreamURL}/backend-api/codex`,
+    apiBaseURL: `${upstreamURL}/v1`,
+    route,
+    statusId,
+  }),
+  routingPath: "/responses",
+  catalogPath: "/models?client_version=conformance",
+  sentinelModel: "jev-router",
+  resolvedModel: "gpt-5.6-sol-conformance",
+  resolvedTier: "opus",
+  manualModel: "gpt-5.6-luna",
+  catalogResponse: {
+    models: [
+      {
+        slug: "gpt-5.6-terra-conformance",
+        display_name: "GPT Terra Conformance",
+        visibility: "list",
+        supported_in_api: true,
+      },
+      {
+        slug: "gpt-5.6-sol-conformance",
+        display_name: "GPT Sol Conformance",
+        visibility: "list",
+        supported_in_api: true,
+      },
+    ],
+  },
+  expectedFallbackModel: "gpt-5.6-sol-conformance",
+  expectedCatalogModelIds: [
+    "gpt-5.6-terra-conformance",
+    "gpt-5.6-sol-conformance",
+  ],
+  makeRoutingRequest: ({ model, prompt, statusId }) => ({
+    model,
+    prompt_cache_key: statusId,
+    input: [codexTools, { role: "user", content: [{ type: "input_text", text: prompt }] }],
+  }),
+  makeToolContinuation: ({ model, prompt, statusId }) => ({
+    model,
+    prompt_cache_key: statusId,
+    input: [
+      codexTools,
+      { role: "user", content: [{ type: "input_text", text: prompt }] },
+      { type: "function_call", call_id: "call-1", name: "shell", arguments: "{}" },
+      { type: "function_call_output", call_id: "call-1", output: "done" },
+    ],
+  }),
+  makeExplainRequest: ({ model, prompt, statusId }) => ({
+    model,
+    prompt_cache_key: statusId,
+    input: [
+      codexTools,
+      { role: "user", content: [{ type: "input_text", text: prompt }] },
+      { role: "assistant", content: [{ type: "output_text", text: "done" }] },
+      { role: "user", content: [{ type: "input_text", text: "$jev-explain" }] },
+    ],
+  }),
+  makeManualRequest: ({ model, statusId }) => ({
+    model,
+    prompt_cache_key: statusId,
+    input: [codexTools, { role: "user", content: "manual model request" }],
+  }),
+  authHeaders: {
+    authorization: "Bearer codex-conformance-token",
+    "chatgpt-account-id": "codex-conformance-account",
+  },
+});
 
 test("Codex uses a temporary authenticated Jev provider", () => {
   const args = codexArgs("http://127.0.0.1:1234", ["--sandbox", "read-only"]);
@@ -262,4 +336,83 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
   assert.equal(routeCalls, 1);
   assert.equal(seen[3].body.model, "gpt-5.6-sol");
   assert.equal(readStatus(statusId).metrics.reasoningRequired, 0.91);
+});
+
+// Regression tests for behavior the pipeline extraction dropped; see PR #44 review.
+async function codexUpstream(t, catalog) {
+  const seen = [];
+  const upstream = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      if (req.url.includes("/models")) {
+        res.setHeader("content-type", "application/json");
+        return res.end(JSON.stringify({ models: catalog }));
+      }
+      seen.push(JSON.parse(Buffer.concat(chunks)));
+      res.end('event: response.completed\ndata: {"type":"response.completed"}\n\n');
+    });
+  });
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  t.after(() => upstream.close());
+  const base = `http://127.0.0.1:${upstream.address().port}`;
+  return { seen, chatgptBaseURL: `${base}/backend-api/codex`, apiBaseURL: `${base}/v1` };
+}
+
+const postResponses = (port, body) =>
+  fetch(`http://127.0.0.1:${port}/responses`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "chatgpt-account-id": "acct" },
+    body: JSON.stringify(body),
+  }).then((r) => r.text());
+
+const userTurn = (text) => ({ role: "user", content: [{ type: "input_text", text }] });
+
+test("a Codex fallback uses the account's catalog model, not the static id", async (t) => {
+  const { seen, ...urls } = await codexUpstream(t, [
+    { slug: "gpt-5.5-pro", display_name: "GPT-5.5 Pro", visibility: "list", supported_in_api: true },
+  ]);
+  const { port, close } = await startCodexProxy({ ...urls, route: async () => null });
+  t.after(close);
+
+  await fetch(`http://127.0.0.1:${port}/models?client_version=1`, { headers: { "chatgpt-account-id": "acct" } });
+  await postResponses(port, { model: "jev-router", input: [codexTools, userTurn("hi")] });
+
+  assert.equal(seen[0].model, "gpt-5.5-pro");
+});
+
+test("Codex auxiliary calls and explain turns leave the recorded decision in place", async (t) => {
+  const { seen, ...urls } = await codexUpstream(t, []);
+  const statusId = `codex-status-${process.pid}`;
+  const { port, close } = await startCodexProxy({
+    ...urls,
+    statusId,
+    route: async () => ({ choice: "gpt-5.6-terra", confidence: 0.84 }),
+  });
+  t.after(close);
+
+  await postResponses(port, { model: "jev-router", prompt_cache_key: "main", input: [codexTools, userTurn("rename x")] });
+  assert.equal(readStatus(statusId).tier, "sonnet");
+
+  // A title request on a model of Codex's own choosing is not the user picking a model.
+  await postResponses(port, {
+    model: "gpt-5.6-luna",
+    input: [userTurn("Generate a concise, single-line task title of at most 36 characters")],
+  });
+  // An explain turn, with tools present, must not overwrite what it is explaining.
+  await postResponses(port, {
+    model: "jev-router",
+    prompt_cache_key: "main",
+    input: [codexTools, userTurn("rename x"), { role: "assistant", content: [{ type: "output_text", text: "done" }] }, userTurn("$jev-explain")],
+  });
+  let status = readStatus(statusId);
+  assert.equal(status.manual, undefined);
+  assert.equal(status.tier, "sonnet");
+  assert.equal(status.history.length, 1);
+
+  // A real turn on a model the user picked is manual.
+  await postResponses(port, { model: "gpt-5.6-sol", input: [codexTools, userTurn("now do y")] });
+  status = readStatus(statusId);
+  assert.equal(status.manual, true);
+  assert.equal(seen.length, 4);
 });
