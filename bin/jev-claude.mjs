@@ -8,6 +8,7 @@ import { startProxy } from "../src/proxy.mjs";
 import { AUTO_MODEL } from "../src/config.mjs";
 import { readSavedModel, restoreSavedModel } from "../src/settings.mjs";
 import { LOG_FILE } from "../src/log.mjs";
+import { describeMissingJev, resolveJevProvider } from "../src/jev-client.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(HERE);
@@ -122,7 +123,7 @@ if (!claude) {
   process.exit(1);
 }
 
-if (process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY) {
+if (resolveJevProvider()) {
   const { port, close } = await startProxy();
   env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`;
   env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1";
@@ -137,8 +138,8 @@ if (process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY) {
   }
 } else {
   process.stderr.write(
-    `[jev] no JEV_API_KEY found - starting Claude Code without routing\n` +
-      `[jev] set it in ${join(homedir(), ".jev-claude.env")} to enable routing\n`,
+    `[jev] ${describeMissingJev()} - starting Claude Code without routing\n` +
+      `[jev] set JEV_API_KEY or OPENROUTER_API_KEY in ${join(homedir(), ".jev-router.env")} to enable routing\n`,
   );
 }
 
