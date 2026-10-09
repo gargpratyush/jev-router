@@ -134,7 +134,7 @@ test("surfaces routing as a native commentary event", () => {
     confidence: null,
     reason: "jev-unavailable/no-change",
   });
-  assert.match(unavailable, /JEV_API_KEY=\.\.\. to ~\/\.jev-router\.env/);
+  assert.match(unavailable, /OPENROUTER_API_KEY=\.\.\. to ~\/\.jev-router\.env/);
   assert.match(unavailable, /using gpt-5\.6-terra/);
 });
 

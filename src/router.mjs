@@ -1,4 +1,3 @@
-import { TypeSafeClient } from "@typesafe-ai/sdk";
 import {
   COMPLEXITY_MAX_SCORE,
   CONTEXT_WINDOW_TOKENS,
@@ -6,6 +5,7 @@ import {
   questionForModels,
   THRESHOLDS,
 } from "./config.mjs";
+import { createJevClient } from "./jev-client.mjs";
 import { log } from "./log.mjs";
 
 // The SDK's defaults (10s per attempt, 2 retries, no total budget) are far too slow for a
@@ -14,11 +14,9 @@ import { log } from "./log.mjs";
 // should degrade to "no routing", not stop the session from starting.
 let client;
 function getClient() {
-  client ??= new TypeSafeClient({
-    apiKey: process.env.JEV_API_KEY ?? process.env.TYPESAFE_API_KEY,
+  client ??= createJevClient({
     timeout: THRESHOLDS.jevTimeoutMs,
     retry: { maxRetries: THRESHOLDS.jevMaxRetries, backoffInitialMs: 150, backoffMaxMs: 400 },
-    logLevel: "warn", // never "debug": request bodies contain the user's prompt
   });
   return client;
 }

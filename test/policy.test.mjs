@@ -69,6 +69,18 @@ test("refuses a downgrade once the cache rebuild costs more than it saves", () =
   assert.match(out.reason, /cache-rebuild/);
 });
 
+test("allows a downgrade on the first turn however large the startup context", () => {
+  // Arrange
+  const input = { ...base, current: "opus", jev: sure("haiku"), contextTokens: 80000, firstTurn: true };
+
+  // Act
+  const out = decide(input);
+
+  // Assert
+  assert.equal(out.tier, "haiku");
+  assert.equal(out.reason, "jev");
+});
+
 test("allows the same downgrade early in a conversation", () => {
   assert.equal(decide({ ...base, current: "opus", jev: sure("haiku") }).tier, "haiku");
 });
