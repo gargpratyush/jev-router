@@ -9,9 +9,9 @@ import { choice, score } from "@typesafe-ai/sdk";
  * those fields have to be stripped when routing down to it.
  */
 export const TIERS = [
-  { name: "haiku", id: "claude-haiku-4-5-20251001", family: "haiku", thinking: false, effort: false },
-  { name: "sonnet", id: "claude-sonnet-5", family: "sonnet", thinking: true, effort: true },
-  { name: "opus", id: "claude-opus-5", family: "opus", thinking: true, effort: true },
+  { name: "haiku", id: "claude-haiku-5-5", family: "haiku", thinking: false, effort: false },
+  { name: "sonnet", id: "claude-sonnet-5-5", family: "sonnet", thinking: true, effort: true },
+  { name: "opus", id: "claude-opus-5-5", family: "opus", thinking: true, effort: true },
   { name: "fable", id: "claude-fable-5-1", family: "fable", thinking: true, effort: true },
 ];
 
