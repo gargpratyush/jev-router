@@ -45,9 +45,22 @@ export const tierOf = (model) =>
 export const availableTiers = () =>
   TIER_NAMES.filter((n) => n !== "fable" || process.env.JEV_ALLOW_FABLE === "1");
 
+/**
+ * Tier a conversation starts on before its first decision, and what a failed decision keeps.
+ * Opus unless `JEV_START_TIER` names another tier, so a session can start lower and escalate.
+ */
+export const startTier = () =>
+  TIER_NAMES.includes(process.env.JEV_START_TIER) ? process.env.JEV_START_TIER : "opus";
+
+/** A positive number from the environment, or `fallback`. */
+const envNumber = (name, fallback) => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
 export const THRESHOLDS = {
   /** Below this Jev confidence we refuse to downgrade and cap upgrades at `uncertainCeiling`. */
-  minConfidence: 0.3,
+  minConfidence: envNumber("JEV_MIN_CONFIDENCE", 0.3),
   /** Safest tier to land on when Jev is unsure. */
   uncertainCeiling: "sonnet",
   /**
@@ -61,8 +74,8 @@ export const THRESHOLDS = {
    * call. Measured: ~300-350ms warm, ~900-1000ms on the first call (TLS handshake), so the
    * deadline leaves room for one retry after a cold-start timeout.
    */
-  jevTimeoutMs: 1500,
-  jevDeadlineMs: 3000,
+  jevTimeoutMs: envNumber("JEV_TIMEOUT_MS", 1500),
+  jevDeadlineMs: envNumber("JEV_DEADLINE_MS", 3000),
   jevMaxRetries: 1,
 };
 

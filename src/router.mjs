@@ -40,7 +40,12 @@ export async function askJev({ prompt, current, contextTokens, models }) {
       session: { current_model: current, context_tokens: contextTokens },
       environment: { available_models: models.map((model) => model.id) },
     },
-    questions: { ...QUESTIONS, model: questionForModels(models) },
+    // The three scores only feed the log and status line. JEV_MODEL_ONLY=1 drops them, which
+    // a self-hosted decision model needs: they roughly double the request it has to read.
+    questions:
+      process.env.JEV_MODEL_ONLY === "1"
+        ? { model: questionForModels(models) }
+        : { ...QUESTIONS, model: questionForModels(models) },
   };
   try {
     const result = await getClient().systemOne(request, { signal: abort.signal });
@@ -50,9 +55,9 @@ export async function askJev({ prompt, current, contextTokens, models }) {
       request,
       response: result,
       metrics: {
-        taskComplexity: task_complexity.score / COMPLEXITY_MAX_SCORE,
-        reasoningRequired: reasoning_required.score / COMPLEXITY_MAX_SCORE,
-        toolComplexity: tool_complexity.score / COMPLEXITY_MAX_SCORE,
+        taskComplexity: task_complexity ? task_complexity.score / COMPLEXITY_MAX_SCORE : null,
+        reasoningRequired: reasoning_required ? reasoning_required.score / COMPLEXITY_MAX_SCORE : null,
+        toolComplexity: tool_complexity ? tool_complexity.score / COMPLEXITY_MAX_SCORE : null,
         contextSize: Math.min(contextTokens / CONTEXT_WINDOW_TOKENS, 1),
       },
       ms: Date.now() - started,

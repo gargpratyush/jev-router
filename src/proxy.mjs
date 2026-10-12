@@ -10,6 +10,7 @@ import {
   tierSpec,
   isAuto,
   shouldUseExactModel,
+  startTier,
 } from "./config.mjs";
 import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
@@ -213,7 +214,7 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
             const key = conversationKey(body);
             const state = stateFor(key);
             // What the prompt cache was built on, which is what a downgrade would discard.
-            const current = state.tier ?? "opus";
+            const current = state.tier ?? startTier();
             const prompt = newTurnPrompt(body);
             const explaining = prompt?.includes("<jev-explain>");
             let fresh = null;

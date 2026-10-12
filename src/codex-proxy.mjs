@@ -2,7 +2,7 @@ import http from "node:http";
 import https from "node:https";
 import { createHash, randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { availableTiers, shouldUseExactModel } from "./config.mjs";
+import { availableTiers, shouldUseExactModel, startTier } from "./config.mjs";
 import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
 import { log } from "./log.mjs";
@@ -192,7 +192,7 @@ export async function startCodexProxy({
             );
             const available = [...new Set(candidates.map((model) => model.tier))];
             const currentModel = states.get(key)?.model ?? modelForTier(candidates, "opus");
-            const current = codexTierOf(currentModel) ?? "opus";
+            const current = codexTierOf(currentModel) ?? startTier();
             const prompt = codexNewTurnPrompt(body);
             const explaining = prompt?.includes("<jev-explain>") || /^\$jev-explain\b/i.test(prompt ?? "");
             let tier = current;

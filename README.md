@@ -213,6 +213,11 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | `JEV_CODEX_BALANCED_MODEL` | Codex | Balanced model; defaults to `gpt-5.6-terra`. |
 | `JEV_CODEX_STRONG_MODEL` | Codex | Strong model; defaults to `gpt-5.6-sol`. |
 | `JEV_CODEX_LONG_MODEL` | Codex | Long model; defaults to `gpt-6-astra`. |
+| `JEV_START_TIER` | Both | Tier a conversation starts on: `haiku`, `sonnet`, `opus` (default) or `fable`. |
+| `JEV_MIN_CONFIDENCE` | Both | Confidence below which Jev may not route down; defaults to `0.3`. |
+| `JEV_TIMEOUT_MS` | Both | Per-attempt decision timeout; defaults to `1500`. |
+| `JEV_DEADLINE_MS` | Both | Wall-clock limit for a decision, retries included; defaults to `3000`. |
+| `JEV_MODEL_ONLY` | Both | `1` asks only for the model and skips the three scores. |
 
 Existing environment variables have highest precedence, followed by `.env` in the launch
 directory, `~/.jev-router.env`, and the legacy `~/.jev-claude.env`.
@@ -221,6 +226,27 @@ Tier definitions, Jev's question, confidence thresholds, and timeouts live in `s
 Both launchers send Jev the exact models in the signed-in account's native catalog, so model
 versions such as `claude-opus-4-8` and `claude-opus-5` remain separate choices. Static model
 ids are used only until the CLI fetches its catalog.
+
+### Self-hosted decision model
+
+Any server that answers `/v1/systemone` can make the decisions, including Cloudflare's
+open-weight [Clef](https://huggingface.co/Cloudflare/clef) under llama.cpp 0.6.0 or later.
+For example, Clef-Flash at Q4 on a laptop:
+
+```bash
+llama-server -m Cloudflare_clef-flash-Q4_K_M.gguf --port 8899 -ngl 99 -c 8192 -b 4096 -ub 4096
+export TYPESAFE_BASE_URL=http://127.0.0.1:8899 JEV_API_KEY=local
+export JEV_MODEL_ONLY=1 JEV_TIMEOUT_MS=10000 JEV_DEADLINE_MS=21000 JEV_MIN_CONFIDENCE=0.1
+```
+
+- A decision model reads the whole request in one batch, so `-b`/`-ub` must exceed its length.
+- On an Apple M5 Pro, Clef-Flash took 0.5 to 3.6 s per decision, against Jev's ~0.3 s, hence
+  the longer timeouts and `JEV_MODEL_ONLY`, which roughly halves the request.
+- Confidence is the gap between the top two choices, so its scale depends on the model and on
+  how many choices there are. Clef-Flash picked Haiku for a typo fix at 0.19, under the
+  default floor.
+- Offer one model per tier: with all twelve Claude versions as choices, Clef-Flash spread
+  6-10% over each.
 
 ## Compatibility notes
 
