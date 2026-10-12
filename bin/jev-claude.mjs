@@ -126,6 +126,11 @@ if (process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY) {
   const { port, close } = await startProxy();
   env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`;
   env.CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY = "1";
+  // Claude Code turns tool search off behind a custom base URL, so every tool's full
+  // definition rides on every request (measured: 23 tools, 66k characters, none deferred;
+  // 28k with tool search on). The proxy forwards requests untouched, so tool search works
+  // through it. A value the user set still wins.
+  env.ENABLE_TOOL_SEARCH ??= "true";
   Object.assign(env, autoModelEnv());
   process.on("exit", () => {
     close();
