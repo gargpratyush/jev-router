@@ -40,6 +40,15 @@ test("shows the concrete provider model when available", () => {
   );
 });
 
+test("explains the recommended pair and distinguishes shortened context", () => {
+  const output = formatExplanation({
+    model: "gpt-6-sol", effort: "high", context: { truncated: true },
+    jev: { response: { answers: { model: { choice: "gpt-6-sol::high" } } } },
+  });
+  assert.match(output, /Recommended: gpt-6-sol::high/);
+  assert.match(output, /Routing context: shortened/);
+});
+
 test("Claude skill pre-approves its read-only explanation command", () => {
   const skill = readFileSync(new URL("../.claude/skills/jev-explain/SKILL.md", import.meta.url), "utf8");
   assert.match(skill, /^allowed-tools: Bash\(node \*\)$/m);

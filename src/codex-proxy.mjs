@@ -4,8 +4,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { availableTiers, shouldUseExactModel } from "./config.mjs";
+import { availableTiers, shouldUseExactModel, THRESHOLDS } from "./config.mjs";
 import { askJev } from "./router.mjs";
+import { codexRoutingContext } from "./codex-context.mjs";
 import { decide } from "./policy.mjs";
 import { log } from "./log.mjs";
 import { readStatus, writeDecision, writeStatus, writeUsage } from "./status.mjs";
@@ -393,13 +394,14 @@ export const upstreamFor = (
   apiBaseURL = API_BASE_URL,
 ) => headers["chatgpt-account-id"] ? chatgptBaseURL : apiBaseURL;
 
-export function jevDecisionEvents({ tier, model = codexModelOf(tier), effort, confidence, reason, warning }) {
+export function jevDecisionEvents({ tier, model = codexModelOf(tier), effort, confidence, reason, warning, context }) {
   const detail = confidence == null ? reason : `${reason}, confidence ${confidence.toFixed(2)}`;
   const id = `jev-${randomUUID()}`;
   const decision = reason.startsWith("jev-unavailable")
     ? `[Jev] unavailable; using ${model}. Add JEV_API_KEY=... to ~/.jev-router.env and restart jev-codex.`
     : `[Jev] routed this turn to ${model} (${detail}).`;
   const details = [decision, ...(effort ? [`Effort: ${effort}`] : [])];
+  if (context?.truncated) details.push(`[Jev] routing context shortened to ${context.includedChars} of ${context.originalChars} characters; OpenAI context is unchanged.`);
   if (warning) details.push(`[Jev] warning: could not refresh the Codex model catalog: ${warning}`);
   const text = details.join("\n");
   const item = {
@@ -591,8 +593,9 @@ export async function startCodexProxy({
             let model = currentModel;
             let effort = currentEffort;
             if (prompt && !explaining && !isUsageCommand) {
-              const contextTokens = Math.round(JSON.stringify(body.input).length / 4);
-              const jev = await route({ prompt, current: currentModel, contextTokens, models: candidates });
+              const context = codexRoutingContext(body);
+              const contextTokens = Math.round((JSON.stringify(body.input).length + (body.instructions?.length ?? 0)) / 4);
+              const jev = await route({ prompt, current: currentModel, currentEffort, contextTokens, models: candidates, context, selectReasoning: true });
               const chosen = candidates.find((candidate) => candidate.id === jev?.choice);
               const decision = decide({
                 prompt,
@@ -609,11 +612,15 @@ export async function startCodexProxy({
                     ? currentModel
                     : modelForTier(candidates, tier);
               const modelInfo = models.get(model);
-              effort = selectCodexReasoningEffort({
-                reasoningRequired: jev?.metrics?.reasoningRequired,
+              const confident = jev?.confidence >= THRESHOLDS.minConfidence;
+              const recommendedEffort = confident && shouldUseExactModel(decision.reason, chosen?.tier, tier) && model === jev?.choice &&
+                modelInfo?.supported_reasoning_levels?.some((level) => level.effort === jev.effort)
+                ? jev.effort : undefined;
+              effort = recommendedEffort ?? selectCodexReasoningEffort({
+                reasoningRequired: confident ? jev?.metrics?.reasoningRequired : undefined,
                 supported: modelInfo?.supported_reasoning_levels?.map((level) => level.effort),
                 defaultEffort: modelInfo?.default_reasoning_level,
-                requested: body.reasoning?.effort,
+                requested: model === currentModel ? currentEffort ?? body.reasoning?.effort : body.reasoning?.effort,
               });
               states.set(key, { tier, model, effort });
               routing = {
@@ -625,6 +632,7 @@ export async function startCodexProxy({
                 metrics: jev?.metrics ?? null,
                 reason: decision.reason,
                 warning: catalogRefreshError,
+                context: { originalChars: context.original_chars, includedChars: context.included_chars, truncated: context.truncated },
                 jev: jev ? { request: jev.request, response: jev.response } : null,
                 at: Date.now(),
               };

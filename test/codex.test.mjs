@@ -329,12 +329,16 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
     apiBaseURL: `${upstreamURL}/v1`,
     catalogURL: `${upstreamURL}/catalog`,
     modelCacheFile: join(cacheDir, "allowlist.json"),
-    route: async ({ models }) => {
+    route: async ({ models, context, selectReasoning }) => {
       routeCalls++;
       assert.deepEqual(models.map((model) => model.id), ["gpt-6-luna", "gpt-6-sol"]);
+      assert.equal(selectReasoning, true);
+      assert.match(context.instructions, /Project instructions/);
+      assert.match(context.conversation, /Previous plan/);
       return {
         choice: "gpt-6-sol",
-        confidence: 0.91,
+        effort: routeCalls === 1 ? "high" : "low",
+        confidence: routeCalls === 1 ? 0.91 : 0.1,
         request: { state: { request: "debug this race" } },
         response: { answers: { model: { choice: "gpt-6-sol", confidence: 0.91 } } },
         metrics: {
@@ -359,8 +363,10 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
     body: JSON.stringify({
       model: "jev-router",
       prompt_cache_key: "main",
+      instructions: "Project instructions: preserve flash-write limits",
       input: [
         { type: "additional_tools", role: "developer", tools: [{}] },
+        { role: "assistant", content: "Previous plan: serialize writes" },
         { role: "user", content: [{ type: "input_text", text: "debug this race" }] },
       ],
     }),
@@ -370,10 +376,12 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
   assert.equal(seen[0].account, "acct");
   const routedRequests = seen.filter(({ body }) => body?.model);
   assert.equal(routedRequests[0].body.model, "gpt-6-sol");
-  assert.equal(routedRequests[0].body.reasoning.effort, "xhigh");
+  assert.equal(routedRequests[0].body.reasoning.effort, "high");
+  assert.equal(routedRequests[0].body.instructions, "Project instructions: preserve flash-write limits");
+  assert.equal(routedRequests[0].body.input[1].content, "Previous plan: serialize writes");
   assert.equal(readStatus(statusId).tier, "opus");
   assert.equal(readStatus(statusId).model, "gpt-6-sol");
-  assert.equal(readStatus(statusId).effort, "xhigh");
+  assert.equal(readStatus(statusId).effort, "high");
   assert.equal(readStatus(statusId).prompt, "debug this race");
   assert.equal(readStatus(statusId).jev.request.state.request, "debug this race");
   assert.equal(readStatus(statusId).history.length, 1);
@@ -460,8 +468,25 @@ test("proxy preserves Codex auth, picker, routing, and native decision output", 
     }),
   });
   assert.equal(seen.at(-1).body.model, "gpt-6-sol");
-  assert.equal(seen.at(-1).body.reasoning.effort, "xhigh");
+  assert.equal(seen.at(-1).body.reasoning.effort, "high");
   assert.equal(routeCalls, 1);
+
+  // Uncertainty must not silently downgrade reasoning on an already pinned model.
+  await fetch(`http://127.0.0.1:${port}/responses`, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "jev-router", prompt_cache_key: "main",
+      instructions: "Project instructions: preserve flash-write limits",
+      input: [
+        { type: "additional_tools", role: "developer", tools: [{}] },
+        { role: "assistant", content: "Previous plan: serialize writes" },
+        { role: "user", content: "Continue investigating" },
+      ],
+    }),
+  });
+  assert.equal(routeCalls, 2);
+  assert.equal(seen.at(-1).body.reasoning.effort, "high");
 });
 
 test("Windows Codex resolution avoids a blocked PowerShell shim", (t) => {
