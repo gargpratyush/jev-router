@@ -147,7 +147,7 @@ concrete model pauses routing; selecting **Jev Router** resumes it.
 Each fresh decision appears as Codex commentary:
 
 ```text
-[Jev] routed this turn to gpt-5.6-sol (jev, confidence 0.91).
+[Jev] routed this turn to gpt-6-sol (jev, confidence 0.91).
 ```
 
 `jev-codex` installs or refreshes the packaged `$jev-explain` skill when it starts, so it is
@@ -156,6 +156,32 @@ available from any repository without separate setup.
 Codex's footer shows `jev-router` because it displays the selected picker entry,
 not the model chosen behind that provider. If Jev is unavailable, the commentary names the
 fallback model and explains how to set `JEV_API_KEY`.
+
+### Codex upstream usage
+
+After a Responses API request completes, `jev-codex` adds a `[Jev usage]` commentary block
+from the upstream completion event and retains structured data in that process's existing
+temporary status file. This is exact upstream usage metadata, not Jev's routing estimate.
+Run `$jev-usage` in Codex to display the latest logical turn, the current session aggregate,
+and the model recorded for each turn.
+
+The fields use the Responses API's completion `response.usage` object:
+
+- **Input** is upstream `input_tokens`.
+- **Cached** is `input_tokens_details.cached_tokens`, a subset of Input when the upstream
+  response supplies it.
+- **Non-cached** is derived as Input minus Cached only when both upstream values are present.
+- **Output** is upstream `output_tokens`; **Reasoning** is shown only when
+  `output_tokens_details.reasoning_tokens` is separately reported.
+- **Total** is upstream `total_tokens` and is never re-summed from the other fields, so cached
+  input and reasoning tokens are not double-counted.
+
+Tool continuations and retried upstream requests are stored as individual request entries in
+their logical turn and aggregated only from authoritative values. If any constituent request
+does not report usage, its aggregate is shown as `unavailable`; Jev never substitutes its
+context-token routing measurement. The raw upstream usage object and the normalized view are
+both retained under `usage.turns` for sidebar/API consumers. `$jev-explain` continues to show
+Jev's separate routing context-token estimate.
 
 ## How it works
 
@@ -183,9 +209,9 @@ One Jev call per fresh user turn selects a shared abstract tier:
 
 | Tier | Claude Code default | Codex default |
 | --- | --- | --- |
-| Fast | Haiku | `gpt-5.6-luna` |
-| Balanced | Sonnet | `gpt-5.6-terra` |
-| Strong | Opus | `gpt-5.6-sol` |
+| Fast | Haiku | `gpt-6-luna` |
+| Balanced | Sonnet | Steps up to `gpt-6-sol` when no balanced override is configured |
+| Strong | Opus | `gpt-6-sol` |
 | Long | Fable | `gpt-6-astra` |
 
 `src/policy.mjs` then applies these rules:
@@ -209,9 +235,9 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
 | `JEV_NO_STATUSLINE` | Claude | Disables the injected Claude status line. |
-| `JEV_CODEX_FAST_MODEL` | Codex | Fast model; defaults to `gpt-5.6-luna`. |
-| `JEV_CODEX_BALANCED_MODEL` | Codex | Balanced model; defaults to `gpt-5.6-terra`. |
-| `JEV_CODEX_STRONG_MODEL` | Codex | Strong model; defaults to `gpt-5.6-sol`. |
+| `JEV_CODEX_FAST_MODEL` | Codex | Fast model; defaults to `gpt-6-luna`. |
+| `JEV_CODEX_BALANCED_MODEL` | Codex | Optional distinct balanced model; otherwise balanced work steps up to the strong tier. |
+| `JEV_CODEX_STRONG_MODEL` | Codex | Strong model; defaults to `gpt-6-sol`. |
 | `JEV_CODEX_LONG_MODEL` | Codex | Long model; defaults to `gpt-6-astra`. |
 
 Existing environment variables have highest precedence, followed by `.env` in the launch
@@ -221,6 +247,35 @@ Tier definitions, Jev's question, confidence thresholds, and timeouts live in `s
 Both launchers send Jev the exact models in the signed-in account's native catalog, so model
 versions such as `claude-opus-4-8` and `claude-opus-5` remain separate choices. Static model
 ids are used only until the CLI fetches its catalog.
+
+For Codex, Jev maintains an allowlist built from OpenAI's published model catalog, intersected
+with the models returned for the signed-in account by `GET /v1/models` (or the equivalent Codex
+subscription catalog). Published metadata supplies token prices, context and output limits,
+modalities, features, tools, and supported reasoning levels; account discovery prevents routing
+to a model the current credentials cannot use. Deprecated published models are omitted.
+
+The allowlist is cached at `~/.jev-router/openai-model-allowlist.json`. Jev loads it at startup
+and refreshes it before routing when it is missing or at least 24 hours old. If refresh fails,
+Jev keeps using the stale cache and surfaces a warning rather than blocking the turn. Task
+suitability guidance, confidence thresholds, upgrades, and downgrade guards remain in
+`src/config.mjs` and `src/policy.mjs`. For Codex, Jev chooses a supported model-and-reasoning
+pair directly, using model descriptions, costs, context limits, reasoning levels, modalities,
+and tool capabilities supplied in the routing state. Existing policy can retain or substitute
+a model; in that case, the effort is checked against the effective model's supported levels.
+Low-confidence decisions retain the previous effort when possible. Tool continuations keep
+the chosen pair, and commentary reports the effective model and effort.
+
+Codex routing includes the textual context already assembled by Codex: project instructions,
+conversation history, attached file excerpts, tool descriptions, and previous tool results.
+This does not scan unread repository files. Media is represented by type, without sending
+image URLs or base64 data to Jev. Routing context is limited to 64,000 characters to control
+overhead; long sections retain their beginning and end, with extra space for recent history.
+Shortening is recorded in the saved exchange and reported in commentary. The full upstream
+Codex request continues to OpenAI unchanged apart from the routed model and reasoning effort.
+
+These inputs improve the evidence available to Jev; they do not establish optimal routing.
+Choice confidence describes the supplied options, not the downstream task's probability of
+success. Evaluate completion quality, retries, total cost, and latency on your own tasks.
 
 ## Compatibility notes
 
@@ -252,7 +307,9 @@ injection, and decision display.
 
 ## Limitations
 
-- The user's prompt text is sent to TypeSafe for the routing decision. Nothing else is.
+- Codex sends the prompt, bounded assembled textual context, and model metadata to TypeSafe
+  for routing. Claude routing sends the prompt and model metadata. Exact routing exchanges
+  are retained in the temporary status files described above.
 - Jev adds latency only to the first request of a turn; tool-loop continuations add none.
 - Claude Code and Codex request formats are not public contracts. Use `JEV_DUMP` to diagnose
   upstream changes.

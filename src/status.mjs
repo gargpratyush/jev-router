@@ -43,6 +43,17 @@ export function writeDecision(sessionId, decision) {
   writeStatus(sessionId, { ...decision, history });
 }
 
+/** Persist normalized/raw upstream usage for one logical Codex turn. */
+export function writeUsage(sessionId, turn) {
+  if (!sessionId || !turn?.id) return;
+  const previous = readStatus(sessionId) ?? {};
+  const turns = [...(previous.usage?.turns ?? [])];
+  const index = turns.findIndex((candidate) => candidate.id === turn.id);
+  if (index < 0) turns.push(turn);
+  else turns[index] = turn;
+  writeStatus(sessionId, { ...previous, usage: { version: 1, turns: turns.slice(-100) } });
+}
+
 /** Latest routing decision for a session, or null if none has been made yet. */
 export function readStatus(sessionId) {
   try {

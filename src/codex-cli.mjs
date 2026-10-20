@@ -32,7 +32,10 @@ export function loadEnv() {
 
 export function resolveCodex() {
   const win = process.platform === "win32";
-  const exts = win ? [".exe", ".ps1", ".cmd", ".bat"] : [""];
+  // Prefer native executables and command shims on Windows. PowerShell can
+  // discover an npm-generated .ps1 shim before the adjacent .cmd shim, but
+  // locked-down execution policies reject that script before Codex starts.
+  const exts = win ? [".exe", ".cmd", ".bat", ".ps1"] : [""];
   for (const dir of (process.env.PATH ?? "").split(win ? ";" : ":")) {
     if (!dir) continue;
     for (const ext of exts) {

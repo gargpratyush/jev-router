@@ -4,6 +4,7 @@ import {
   CONTEXT_WINDOW_TOKENS,
   QUESTIONS,
   questionForModels,
+  questionForModelEfforts,
   THRESHOLDS,
 } from "./config.mjs";
 import { log } from "./log.mjs";
@@ -23,30 +24,52 @@ function getClient() {
   return client;
 }
 
-/**
- * Asks Jev which tier fits this prompt. Returns null on any failure, which the policy
- * layer reads as "keep the current model" — routing must never block a prompt.
- *
- * @returns {Promise<?{choice: string, confidence: number, probabilities: object, metrics: object, ms: number}>}
- */
-export async function askJev({ prompt, current, contextTokens, models }) {
+export function routingOptions(models, selectReasoning = false) {
+  return models.flatMap((model) => {
+    const efforts = selectReasoning ? [...new Set(model.capabilities?.reasoningEfforts ?? [])] : [];
+    return efforts.length
+      ? efforts.map((effort) => ({ ...model, effort, selectionId: `${model.id}::${effort}` }))
+      : [{ ...model, selectionId: model.id }];
+  });
+}
+
+export function buildJevRequest({ prompt, current, currentEffort, contextTokens, models, context, selectReasoning = false }) {
+  return {
+    state: {
+      request: prompt,
+      ...(context ? { context } : {}),
+      session: { current_model: current, context_tokens: contextTokens, ...(currentEffort ? { current_effort: currentEffort } : {}) },
+      environment: {
+        available_models: models.map((model) => model.id),
+        model_details: models.map(({ id, description, capabilities, cost }) => ({ id, description, capabilities, cost })),
+      },
+    },
+    questions: {
+      ...QUESTIONS,
+      model: selectReasoning ? questionForModelEfforts(routingOptions(models, true)) : questionForModels(models),
+    },
+  };
+}
+
+export function parseJevModelAnswer(answer, models, selectReasoning = false) {
+  const option = routingOptions(models, selectReasoning).find((candidate) => candidate.selectionId === answer?.choice);
+  if (!option) throw new Error("Jev returned an unknown model or reasoning effort");
+  return { ...answer, choice: option.id, ...(option.effort ? { effort: option.effort } : {}) };
+}
+
+/** Ask Jev once; failures retain the current model through the policy layer. */
+export async function askJev(args) {
+  const { current, contextTokens, models, selectReasoning } = args;
   if (!models?.length) return null;
   const started = Date.now();
   const abort = new AbortController();
   const deadline = setTimeout(() => abort.abort(), THRESHOLDS.jevDeadlineMs);
-  const request = {
-    state: {
-      request: prompt,
-      session: { current_model: current, context_tokens: contextTokens },
-      environment: { available_models: models.map((model) => model.id) },
-    },
-    questions: { ...QUESTIONS, model: questionForModels(models) },
-  };
+  const request = buildJevRequest(args);
   try {
     const result = await getClient().systemOne(request, { signal: abort.signal });
     const { model: answer, task_complexity, reasoning_required, tool_complexity } = result.answers;
     return {
-      ...answer,
+      ...parseJevModelAnswer(answer, models, selectReasoning),
       request,
       response: result,
       metrics: {

@@ -28,6 +28,7 @@ export function formatExplanation(status) {
   const m = status.metrics ?? {};
   const request = status.jev?.request?.state;
   const recommendation = status.jev?.response?.answers?.model_tier?.choice ?? status.tier ?? "unknown";
+  const modelRecommendation = status.jev?.response?.answers?.model?.choice;
   return [
     `┌${"─".repeat(WIDTH)}┐`,
     row("Jev Router"),
@@ -36,6 +37,7 @@ export function formatExplanation(status) {
     ...wrapped("Prompt: ", status.prompt ?? "not recorded"),
     row(`Current tier: ${(request?.session?.current_model ?? "unknown").toUpperCase()}`),
     row(`Context tokens: ${request?.session?.context_tokens ?? "unknown"}`),
+    ...(status.context ? [row(`Routing context: ${status.context.truncated ? "shortened" : "assembled"}`)] : []),
     row(),
     row("Jev response"),
     row(`Task complexity     ${metric(m.taskComplexity)}`),
@@ -43,8 +45,9 @@ export function formatExplanation(status) {
     row(`Tool complexity     ${metric(m.toolComplexity)}`),
     row(`Context size        ${metric(m.contextSize)}`),
     row(),
-    row(`Recommended tier: ${recommendation.toUpperCase()}`),
-    row(`Selected model: ${(status.model ?? status.tier ?? "unknown").toUpperCase()}`),
+    ...(modelRecommendation ? wrapped("Recommended: ", modelRecommendation) : [row(`Recommended tier: ${recommendation.toUpperCase()}`)]),
+    ...wrapped("Selected model: ", (status.model ?? status.tier ?? "unknown").toUpperCase()),
+    row(`Reasoning effort: ${(status.effort ?? "unknown").toUpperCase()}`),
     row(),
     row(`Confidence: ${status.confidence == null ? "n/a" : `${Math.round(status.confidence * 100)}%`}`),
     row(`Decision: ${decision(status.reason)}`),

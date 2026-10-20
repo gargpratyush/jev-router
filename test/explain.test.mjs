@@ -7,6 +7,7 @@ test("formats the last routing decision", () => {
   const output = formatExplanation({
     prompt: "Explain the router architecture",
     tier: "sonnet",
+    effort: "high",
     confidence: 0.94,
     reason: "jev",
     jev: {
@@ -27,15 +28,25 @@ test("formats the last routing decision", () => {
   assert.match(output, /Context tokens: 6200/);
   assert.match(output, /Recommended tier: SONNET/);
   assert.match(output, /Selected model: SONNET/);
+  assert.match(output, /Reasoning effort: HIGH/);
   assert.match(output, /Confidence: 94%/);
   assert.match(output, /Decision: Jev recommendation/);
 });
 
 test("shows the concrete provider model when available", () => {
   assert.match(
-    formatExplanation({ tier: "haiku", model: "gpt-5.6-luna", confidence: 0.99 }),
-    /Selected model: GPT-5\.6-LUNA/,
+    formatExplanation({ tier: "haiku", model: "gpt-6-luna", confidence: 0.99 }),
+    /Selected model: GPT-6-LUNA/,
   );
+});
+
+test("explains the recommended pair and distinguishes shortened context", () => {
+  const output = formatExplanation({
+    model: "gpt-6-sol", effort: "high", context: { truncated: true },
+    jev: { response: { answers: { model: { choice: "gpt-6-sol::high" } } } },
+  });
+  assert.match(output, /Recommended: gpt-6-sol::high/);
+  assert.match(output, /Routing context: shortened/);
 });
 
 test("Claude skill pre-approves its read-only explanation command", () => {
