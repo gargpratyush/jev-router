@@ -3,6 +3,13 @@ import assert from "node:assert/strict";
 import { decide, detectOverride } from "../src/policy.mjs";
 import { QUESTIONS, shouldUseExactModel } from "../src/config.mjs";
 
+// A real OpenRouter pin in the environment (`~/.jev-router.env` is commonly exported from a
+// shell profile) must not change what these tests assert; the tests that want one set it.
+for (const key of ["JEV_OR_HAIKU_MODEL", "JEV_OR_SONNET_MODEL", "JEV_OR_OPUS_MODEL", "JEV_OR_FABLE_MODEL"]) {
+  delete process.env[key];
+}
+
+
 const ALL = ["haiku", "sonnet", "opus", "fable"];
 const sure = (choice) => ({ choice, confidence: 0.95 });
 const unsure = (choice) => ({ choice, confidence: 0.2 });

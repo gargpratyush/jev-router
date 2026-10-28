@@ -11,6 +11,12 @@ import {
   startProxy,
 } from "../src/proxy.mjs";
 
+// A real OpenRouter pin in the environment (`~/.jev-router.env` is commonly exported from a
+// shell profile) must not change what these tests assert; the tests that want one set it.
+for (const key of ["JEV_OR_HAIKU_MODEL", "JEV_OR_SONNET_MODEL", "JEV_OR_OPUS_MODEL", "JEV_OR_FABLE_MODEL"]) {
+  delete process.env[key];
+}
+
 test("only the sentinel model is routed", () => {
   assert.equal(isAuto("jev-router"), true);
   assert.equal(isAuto("claude-opus-4-6"), false, "a model the user picked is theirs");
@@ -221,6 +227,14 @@ test("reads a text block prompt as a new turn", () => {
   assert.equal(newTurnPrompt(body), "fix the bug");
 });
 
+test("skips trailing system messages carrying hook output", () => {
+  const body = withTools([
+    { role: "user", content: [{ type: "text", text: "fix the bug" }] },
+    { role: "system", content: [{ type: "text", text: "SessionStart hook success" }] },
+  ]);
+  assert.equal(newTurnPrompt(body), "fix the bug");
+});
+
 test("ignores a tool_result continuation mid-turn", () => {
   const body = withTools([
     { role: "user", content: "fix the bug" },
@@ -354,4 +368,90 @@ test("the same opening text in two sessions gets two keys", () => {
 test("the key survives metadata that is not JSON", () => {
   const body = { metadata: { user_id: "not-json" }, messages: [{ role: "user", content: "hi" }] };
   assert.doesNotThrow(() => conversationKey(body));
+});
+
+test("a tier pinned to an OpenRouter model is served by OpenRouter with its own credential", async (t) => {
+  const seen = { anthropic: [], openrouter: [] };
+  const fake = (name, model) => {
+    const server = http.createServer((req, res) => {
+      const chunks = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => {
+        if (req.url.startsWith("/v1/models")) {
+          res.setHeader("content-type", "application/json");
+          return res.end(JSON.stringify({ data: [
+            { id: "claude-haiku-4-5-20251001", display_name: "Claude Haiku 4.5" },
+            { id: "claude-sonnet-5", display_name: "Claude Sonnet 5" },
+          ] }));
+        }
+        seen[name].push({ url: req.url, auth: req.headers.authorization, apiKey: req.headers["x-api-key"], body: JSON.parse(Buffer.concat(chunks)) });
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ id: "msg_1", type: "message", model }));
+      });
+    });
+    return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
+  };
+  const anthropic = await fake("anthropic", "claude-sonnet-5");
+  const openrouter = await fake("openrouter", "z-ai/glm-5.3-flash");
+  t.after(() => { anthropic.close(); openrouter.close(); });
+
+  const saved = { ...process.env };
+  process.env.JEV_OR_HAIKU_MODEL = "z-ai/glm-5.3-flash";
+  process.env.JEV_OPENROUTER_URL = `http://127.0.0.1:${openrouter.address().port}`;
+  process.env.OPENROUTER_API_KEY = "or-secret";
+  t.after(() => {
+    for (const k of ["JEV_OR_HAIKU_MODEL", "JEV_OPENROUTER_URL", "OPENROUTER_API_KEY"]) {
+      if (k in saved) process.env[k] = saved[k]; else delete process.env[k];
+    }
+  });
+
+  let choice = "z-ai/glm-5.3-flash";
+  const { port, close } = await startProxy({
+    upstreamURL: `http://127.0.0.1:${anthropic.address().port}`,
+    route: async ({ models }) => {
+      assert.deepEqual(models.map((m) => m.id), ["z-ai/glm-5.3-flash", "claude-sonnet-5"],
+        "Jev sees the OpenRouter model instead of the Claude haiku entry");
+      return { choice, confidence: 0.95, ms: 1 };
+    },
+  });
+  t.after(close);
+
+  await fetch(`http://127.0.0.1:${port}/v1/models`).then((r) => r.json());
+  const send = (messages) => fetch(`http://127.0.0.1:${port}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": "anthropic-secret" },
+    body: JSON.stringify({ model: "jev-router", tools: [{ name: "Bash" }], messages }),
+  });
+
+  await send([{ role: "user", content: `rename this variable ${process.pid}` }]);
+  assert.equal(seen.openrouter.length, 1);
+  assert.equal(seen.openrouter[0].body.model, "z-ai/glm-5.3-flash");
+  assert.equal(seen.openrouter[0].auth, "Bearer or-secret");
+  assert.equal(seen.openrouter[0].apiKey, undefined, "the Anthropic key never leaves for OpenRouter");
+  assert.equal(seen.anthropic.length, 0);
+
+  // A later turn that upgrades to Claude must not carry GLM's unsigned thinking with it.
+  choice = "claude-sonnet-5";
+  await send([
+    { role: "user", content: `design the auth layer ${process.pid}` },
+    { role: "assistant", content: [{ type: "thinking", thinking: "hm", signature: "" }, { type: "text", text: "ok" }] },
+    { role: "user", content: "go on, this is subtle" },
+  ]);
+  assert.equal(seen.anthropic.length, 1);
+  assert.equal(seen.anthropic[0].body.model, "claude-sonnet-5");
+  assert.equal(seen.anthropic[0].apiKey, "anthropic-secret");
+  assert.deepEqual(seen.anthropic[0].body.messages[1].content, [{ type: "text", text: "ok" }]);
+
+  // OpenRouter has no count_tokens endpoint, and Anthropic 404s on its model ids.
+  choice = "z-ai/glm-5.3-flash";
+  await fetch(`http://127.0.0.1:${port}/v1/messages/count_tokens`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": "anthropic-secret" },
+    body: JSON.stringify({ model: "jev-router", tools: [{ name: "Bash" }], messages: [{ role: "user", content: "hi" }] }),
+  });
+  assert.equal(seen.openrouter.length, 1, "the count probe is not sent to OpenRouter");
+  assert.equal(seen.anthropic.length, 2);
+  assert.equal(seen.anthropic[1].url, "/v1/messages/count_tokens");
+  assert.equal(seen.anthropic[1].body.model, "claude-haiku-4-5-20251001",
+    "the probe names the tier's Claude model, not the OpenRouter pin");
 });

@@ -1,6 +1,6 @@
-import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { appendFileSync, chmodSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 // One file per session rather than a shared map, so concurrent jev-claude sessions can never
 // clobber each other's status. Kept in the temp dir so the OS eventually cleans up.
@@ -36,12 +36,65 @@ export function writeStatus(sessionId, status) {
   }
 }
 
+// Durable, unlike the status files above. Those sit in the temp dir and keep the last 20
+// decisions because the status line is cosmetic. Cost attribution is not: a rewritten turn
+// is billed against the model we picked, and nothing downstream records which one that was.
+// Claude Code names the real model on its own per-request records, but Codex writes only the
+// id it asked for, so every Codex turn through the router lands under `jev-router` and prices
+// to nothing. This ledger is the missing half of that join.
+//
+// The prompt is deliberately not written here. The status files are 0600 precisely because
+// they carry prompt text, and a file that is meant to outlive the session has no business
+// keeping it — session, time, tier and model are all an attribution needs.
+const LEDGER =
+  process.env.JEV_ROUTING_LEDGER ||
+  join(
+    process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"),
+    "jev-router",
+    "routing.jsonl",
+  );
+
+function appendLedger(record) {
+  try {
+    mkdirSync(dirname(LEDGER), { recursive: true, mode: DIR_MODE });
+    appendFileSync(LEDGER, JSON.stringify(record) + "\n", { mode: FILE_MODE });
+    return true;
+  } catch {
+    // Attribution is a bonus. A request is never failed for it.
+    return false;
+  }
+}
+
+/** Append one routing decision to the durable ledger. Never throws. */
+export function appendRouting(sessionId, { tier, model, at } = {}) {
+  if (!sessionId || !model) return false;
+  return appendLedger({ session: sessionId, tier, model, at: at ?? Date.now() });
+}
+
+/**
+ * Record that a proxy-local id and a real session id name the same conversation.
+ *
+ * Claude Code sends its session id in the request body, so its decisions are already filed
+ * under the id the transcript uses. Codex sends nothing of the kind: the proxy files under
+ * `codex-<pid>` while Codex mints its own uuid and reveals it only in the rollout filename.
+ * Without this line the two halves cannot be joined and every routed Codex turn stays
+ * attributed to the alias.
+ */
+export function appendSessionAlias(alias, session, at = Date.now()) {
+  if (!alias || !session || alias === session) return false;
+  return appendLedger({ alias, session, at });
+}
+
 /** Publish a routed prompt and retain recent exact Jev exchanges for diagnosis. */
 export function writeDecision(sessionId, decision) {
   const previous = readStatus(sessionId);
   const history = [...(previous?.history ?? []), decision].slice(-20);
   writeStatus(sessionId, { ...decision, history });
+  appendRouting(sessionId, decision);
 }
+
+/** Ledger path, exposed for tests and for the agent-os reader. */
+export const ROUTING_LEDGER = LEDGER;
 
 /** Latest routing decision for a session, or null if none has been made yet. */
 export function readStatus(sessionId) {

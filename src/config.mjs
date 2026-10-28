@@ -19,7 +19,10 @@ export const TIER_NAMES = TIERS.map((t) => t.name);
 
 export const rankOf = (name) => TIER_NAMES.indexOf(name);
 
-export const idOf = (name) => TIERS.find((t) => t.name === name)?.id;
+/** The tier's own Claude model, ignoring any OpenRouter pin. */
+export const anthropicIdOf = (name) => TIERS.find((t) => t.name === name)?.id;
+
+export const idOf = (name) => openrouterModelOf(name) ?? anthropicIdOf(name);
 
 export const tierSpec = (name) => TIERS.find((t) => t.name === name);
 
@@ -34,9 +37,33 @@ export const AUTO_MODEL = "jev-router";
 /** Whether a request should be routed, or passed through as the user's own choice. */
 export const isAuto = (model) => model === AUTO_MODEL;
 
+/**
+ * Per-tier OpenRouter overrides. OpenRouter serves Anthropic's own `/v1/messages` shape, so a
+ * tier can be pointed at one of its models without a second request format; only the base URL
+ * and the credential differ, which the proxy swaps per request. Unset means the tier stays on
+ * Anthropic.
+ */
+const OPENROUTER_MODEL_ENV = {
+  haiku: "JEV_OR_HAIKU_MODEL",
+  sonnet: "JEV_OR_SONNET_MODEL",
+  opus: "JEV_OR_OPUS_MODEL",
+  fable: "JEV_OR_FABLE_MODEL",
+};
+
+/** Read per call, not once at import, so a test or an env file loaded later still applies. */
+export const openrouterBaseURL = () => process.env.JEV_OPENROUTER_URL || "https://openrouter.ai/api";
+
+/** OpenRouter model a tier is pinned to, or null when the tier stays on Anthropic. */
+export const openrouterModelOf = (tier) => process.env[OPENROUTER_MODEL_ENV[tier]]?.trim() || null;
+
+export const isOpenRouterModel = (model) =>
+  Boolean(model) && TIER_NAMES.some((name) => openrouterModelOf(name) === model);
+
 /** Tier name for a model string Claude Code sent, or null if we don't recognise it. */
 export const tierOf = (model) =>
-  TIERS.find((t) => typeof model === "string" && model.includes(t.family))?.name ?? null;
+  TIER_NAMES.find((name) => openrouterModelOf(name) === model) ??
+  TIERS.find((t) => typeof model === "string" && model.includes(t.family))?.name ??
+  null;
 
 /**
  * Fable bills extra usage credits, so it is opt-in. Everything else is covered by a normal

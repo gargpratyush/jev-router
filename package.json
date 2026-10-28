@@ -15,7 +15,7 @@
     "jev-explain": "bin/jev-explain.mjs"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.mjs\"",
+    "test": "JEV_ROUTING_LEDGER=\"${TMPDIR:-/tmp}/jev-router-test-routing.jsonl\" node --test \"test/**/*.test.mjs\"",
     "prepublishOnly": "npm test"
   },
   "files": [

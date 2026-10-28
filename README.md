@@ -209,6 +209,13 @@ sub-agents are pinned separately. Routing is fail-open: Jev failure never blocks
 | `JEV_DEBUG` | Both | Logs decisions and rewrites to `~/.jev-claude.log` in interactive sessions. |
 | `JEV_DUMP` | Both | Dumps request bodies for debugging wire-format changes. |
 | `JEV_NO_STATUSLINE` | Claude | Disables the injected Claude status line. |
+| `JEV_UPSTREAM_URL` | Claude | Upstream the proxy forwards to. Defaults to the inherited `ANTHROPIC_BASE_URL`, then `https://api.anthropic.com`, so jev can chain in front of another local proxy. |
+| `JEV_OR_HAIKU_MODEL` | Claude | Serves the fast tier from OpenRouter, e.g. `z-ai/glm-5.3-flash`. Unset keeps the tier on Anthropic. |
+| `JEV_OR_SONNET_MODEL` | Claude | Serves the balanced tier from OpenRouter. |
+| `JEV_OR_OPUS_MODEL` | Claude | Serves the strong tier from OpenRouter. |
+| `JEV_OR_FABLE_MODEL` | Claude | Serves the long tier from OpenRouter. |
+| `OPENROUTER_API_KEY` | Claude | Credential for the pinned tiers above. Required once any of them is set. |
+| `JEV_OPENROUTER_URL` | Claude | OpenRouter base URL; defaults to `https://openrouter.ai/api`. |
 | `JEV_CODEX_FAST_MODEL` | Codex | Fast model; defaults to `gpt-5.6-luna`. |
 | `JEV_CODEX_BALANCED_MODEL` | Codex | Balanced model; defaults to `gpt-5.6-terra`. |
 | `JEV_CODEX_STRONG_MODEL` | Codex | Strong model; defaults to `gpt-5.6-sol`. |
@@ -222,10 +229,29 @@ Both launchers send Jev the exact models in the signed-in account's native catal
 versions such as `claude-opus-4-8` and `claude-opus-5` remain separate choices. Static model
 ids are used only until the CLI fetches its catalog.
 
+### Mixed Anthropic and OpenRouter tiers
+
+Any tier can be pinned to an OpenRouter model, which then replaces that tier's Claude models in
+Jev's candidate list; the other tiers stay on the Anthropic subscription. OpenRouter serves
+Anthropic's own `/v1/messages` shape, so only the destination and the credential change per
+request — the Anthropic key or OAuth token is never forwarded to it.
+
+```sh
+# ~/.jev-router.env
+OPENROUTER_API_KEY=sk-or-...
+JEV_OR_HAIKU_MODEL=z-ai/glm-5.3-flash
+```
+
+Claude Code's own UI still shows the sentinel row, so confirm the served model from the status
+line, `jev-explain`, or a status line that reads the model out of the transcript.
+
 ## Compatibility notes
 
 - Claude Code needs schema normalisation for older MCP JSON Schema fields when a custom base
   URL is active.
+- OpenRouter models return thinking blocks with an empty signature, which Anthropic rejects on
+  any later turn of the same conversation, so unsigned thinking is stripped from history.
+- OpenRouter has no `/v1/messages/count_tokens`, so token-count probes stay on Anthropic.
 - Claude request fields unsupported by a routed tier, such as adaptive thinking on Haiku,
   are removed before forwarding.
 - Codex's current request format stores tool definitions inside its Responses API input.

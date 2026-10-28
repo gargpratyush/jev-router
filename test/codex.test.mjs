@@ -20,7 +20,7 @@ import { readStatus } from "../src/status.mjs";
 
 test("Codex uses a temporary authenticated Jev provider", () => {
   const args = codexArgs("http://127.0.0.1:1234", ["--sandbox", "read-only"]);
-  assert.deepEqual(args.slice(0, 2), ["--model", "jev-router"]);
+  assert.deepEqual(args.slice(0, 3), ["--no-daemon", "--model", "jev-router"]);
   assert(args.includes('model_provider="jev"'));
   assert(args.includes("model_providers.jev.requires_openai_auth=true"));
   assert.deepEqual(args.slice(-2), ["--sandbox", "read-only"]);

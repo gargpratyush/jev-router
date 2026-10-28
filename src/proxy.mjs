@@ -10,13 +10,17 @@ import {
   tierSpec,
   isAuto,
   shouldUseExactModel,
+  openrouterModelOf,
+  openrouterBaseURL,
+  isOpenRouterModel,
+  anthropicIdOf,
 } from "./config.mjs";
 import { askJev } from "./router.mjs";
 import { decide } from "./policy.mjs";
 import { log } from "./log.mjs";
 import { writeDecision, writeStatus } from "./status.mjs";
 
-const ANTHROPIC_BASE_URL = "https://api.anthropic.com";
+const ANTHROPIC_BASE_URL = process.env.JEV_UPSTREAM_URL || process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com";
 const debug = (line) => process.env.JEV_DEBUG && log(line);
 
 /**
@@ -51,10 +55,11 @@ export function sanitizeSchema(node) {
  * Jev on every tool call and let the model flip mid-task, so only the opening request of a
  * turn counts. Claude Code also injects `<system-reminder>` blocks into the user message,
  * which are noise to a router and measurably blunt Jev's confidence, so they are removed.
+ * Newer versions append hook output as trailing `system` messages, which are skipped too.
  */
 export function newTurnPrompt(body) {
   if (!Array.isArray(body?.tools) || body.tools.length === 0) return null; // auxiliary call
-  const last = body?.messages?.[body.messages.length - 1];
+  const last = body?.messages?.findLast((m) => m.role !== "system");
   if (!last || last.role !== "user") return null;
   let text;
   if (typeof last.content === "string") {
@@ -97,10 +102,30 @@ export function applyTier(body, tierName, model = idOf(tierName)) {
   return body;
 }
 
-/** Exact Claude models reported by the account, newest first; static ids are the cold-start fallback. */
+/**
+ * Strips thinking blocks Anthropic would reject from assistant history. OpenRouter models
+ * return thinking with an empty signature, and once such a turn is in the conversation the
+ * next request to Anthropic fails with "Invalid `signature` in `thinking` block". Signed
+ * blocks are left alone, and OpenRouter accepts them.
+ */
+export function dropUnsignedThinking(body) {
+  if (!Array.isArray(body?.messages)) return body;
+  body.messages = body.messages.filter((m) => {
+    if (m.role !== "assistant" || !Array.isArray(m.content)) return true;
+    m.content = m.content.filter((b) => b.type !== "thinking" || b.signature);
+    return m.content.length > 0;
+  });
+  return body;
+}
+
+/**
+ * Exact Claude models reported by the account, newest first; static ids are the cold-start
+ * fallback. A tier pinned to an OpenRouter model replaces its Claude entries, so Jev can only
+ * pick the model that tier will actually be served by.
+ */
 export function claudeModels(catalog = []) {
   const models = catalog
-    .filter((model) => tierOf(model?.id))
+    .filter((model) => tierOf(model?.id) && !openrouterModelOf(tierOf(model.id)))
     .map((model) => ({
       id: model.id,
       tier: tierOf(model.id),
@@ -110,9 +135,19 @@ export function claudeModels(catalog = []) {
         model.max_input_tokens && `${model.max_input_tokens} input tokens`,
       ].filter(Boolean).join("; "),
     }));
-  return models.length
+  const pinned = TIERS.filter((tier) => openrouterModelOf(tier.name)).map((tier) => ({
+    id: idOf(tier.name),
+    tier: tier.name,
+    description: `${idOf(tier.name)} via OpenRouter`,
+  }));
+  const anthropic = models.length
     ? models
-    : TIERS.map((tier) => ({ id: tier.id, tier: tier.name, description: tier.id }));
+    : TIERS.filter((tier) => !openrouterModelOf(tier.name)).map((tier) => ({
+        id: tier.id,
+        tier: tier.name,
+        description: tier.id,
+      }));
+  return [...pinned, ...anthropic];
 }
 
 const modelForTier = (models, tier) => models.find((model) => model.tier === tier)?.id ?? idOf(tier);
@@ -189,10 +224,12 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
     req.on("data", (c) => chunks.push(c));
     req.on("end", async () => {
       let out = Buffer.concat(chunks);
+      let toOpenRouter = false;
 
       if (/^\/v1\/messages/.test(req.url ?? "")) {
         try {
           const body = JSON.parse(out.toString());
+          dropUnsignedThinking(body);
           // Claude Code's request shape is undocumented and moves; JEV_DUMP captures it.
           if (process.env.JEV_DUMP) {
             writeFileSync(`${process.env.JEV_DUMP}.${Date.now()}.json`, JSON.stringify(body, null, 2));
@@ -271,16 +308,29 @@ export async function startProxy({ upstreamURL = ANTHROPIC_BASE_URL, route = ask
               writeDecision(sessionOf(body) || key, { tier, ...fresh, at: Date.now() });
             }
           }
+          // OpenRouter serves no `count_tokens`, and Anthropic 404s on an OpenRouter model id,
+          // so those probes stay on Anthropic under the tier's own Claude model. A token count
+          // only has to be tier-accurate.
+          if (/^\/v1\/messages\/count_tokens/.test(req.url) && isOpenRouterModel(body.model)) {
+            body.model = anthropicIdOf(tierOf(body.model));
+          }
+          // OpenRouter speaks this same request shape, so only the destination and the
+          // credential change.
+          toOpenRouter = isOpenRouterModel(body.model);
           out = Buffer.from(JSON.stringify(body));
         } catch (err) {
           debug(`passthrough, could not process body: ${err.message}`);
         }
       }
 
-      const target = new URL(upstreamURL);
+      const target = new URL(toOpenRouter ? openrouterBaseURL() : upstreamURL);
       const transport = target.protocol === "http:" ? http : https;
       const headers = { ...req.headers, host: target.host };
       delete headers["content-length"];
+      if (toOpenRouter) {
+        delete headers["x-api-key"];
+        headers.authorization = `Bearer ${process.env.OPENROUTER_API_KEY ?? ""}`;
+      }
       if (req.method === "GET" && /^\/v1\/models(?:\?|$)/.test(req.url ?? "")) {
         delete headers["accept-encoding"];
       }
