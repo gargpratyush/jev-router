@@ -9,9 +9,9 @@ import { choice, score } from "@typesafe-ai/sdk";
  * those fields have to be stripped when routing down to it.
  */
 export const TIERS = [
-  { name: "haiku", id: "claude-haiku-4-5-20251001", family: "haiku", thinking: false, effort: false },
-  { name: "sonnet", id: "claude-sonnet-5", family: "sonnet", thinking: true, effort: true },
-  { name: "opus", id: "claude-opus-5", family: "opus", thinking: true, effort: true },
+  { name: "haiku", id: "claude-haiku-5-5", family: "haiku", thinking: false, effort: false },
+  { name: "sonnet", id: "claude-sonnet-5-5", family: "sonnet", thinking: true, effort: true },
+  { name: "opus", id: "claude-opus-5-5", family: "opus", thinking: true, effort: true },
   { name: "fable", id: "claude-fable-5-1", family: "fable", thinking: true, effort: true },
 ];
 
@@ -64,6 +64,8 @@ export const THRESHOLDS = {
   jevTimeoutMs: 1500,
   jevDeadlineMs: 3000,
   jevMaxRetries: 1,
+  /** Deadline for fetching the account's model catalog before the first routed turn. */
+  catalogTimeoutMs: 2000,
 };
 
 export const CONTEXT_WINDOW_TOKENS = 200000;
@@ -140,7 +142,7 @@ export const questionForModels = (models) =>
   choice(
     [
       "Pick the cheapest exact model that can fully complete this coding request in one pass, without retrying on a stronger model.",
-      "Treat different model versions as separate choices. Judge required reasoning, not requested reply length.",
+      "Judge required reasoning, not requested reply length.",
     ],
     Object.fromEntries(
       models.map(({ id, tier, description }) => [
