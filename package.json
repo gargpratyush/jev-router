@@ -12,7 +12,8 @@
   "bin": {
     "jev-claude": "bin/jev-claude.mjs",
     "jev-codex": "bin/jev-codex.mjs",
-    "jev-explain": "bin/jev-explain.mjs"
+    "jev-explain": "bin/jev-explain.mjs",
+    "jev-tiers": "bin/jev-tiers.mjs"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",

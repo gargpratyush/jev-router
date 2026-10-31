@@ -1,4 +1,7 @@
 // Every routing decision knob lives here, so the whole policy is reviewable in one file.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { choice, score } from "@typesafe-ai/sdk";
 
 /**
@@ -42,8 +45,34 @@ export const tierOf = (model) =>
  * Fable bills extra usage credits, so it is opt-in. Everything else is covered by a normal
  * subscription.
  */
-export const availableTiers = () =>
-  TIER_NAMES.filter((n) => n !== "fable" || process.env.JEV_ALLOW_FABLE === "1");
+export const parseTierList = (text) => {
+  const names = String(text ?? "").toLowerCase().split(/[\s,]+/).filter(Boolean);
+  return names.length > 0 && names.every((name) => TIER_NAMES.includes(name)) ? names.join(",") : null;
+};
+
+export const savedTiersFile = () => join(homedir(), ".jev-router-tiers");
+
+export const readSavedTiers = () => {
+  try {
+    return readFileSync(savedTiersFile(), "utf8").trim();
+  } catch {
+    return "";
+  }
+};
+
+/**
+ * Tiers Jev may route to. A list saved by `/jev-tiers` wins over `JEV_ALLOWED_TIERS`, and
+ * entries that are not tier names are ignored.
+ */
+export const availableTiers = (env = process.env, saved = readSavedTiers()) => {
+  const named = (saved || env.JEV_ALLOWED_TIERS || "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name) => TIER_NAMES.includes(name));
+  return TIER_NAMES.filter(
+    (n) => (named.length === 0 || named.includes(n)) && (n !== "fable" || env.JEV_ALLOW_FABLE === "1"),
+  );
+};
 
 export const THRESHOLDS = {
   /** Below this Jev confidence we refuse to downgrade and cap upgrades at `uncertainCeiling`. */

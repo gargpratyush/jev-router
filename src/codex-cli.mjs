@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, copyFileSync, mkdirSync } from "node:fs";
+import { accessSync, constants, copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,11 +8,15 @@ import { CODEX_AUTO_MODEL, startCodexProxy } from "./codex-proxy.mjs";
 const PROVIDER = "jev";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const EXPLAIN_SKILL = join(ROOT, "skills", "codex", "jev-explain", "SKILL.md");
+const TIERS_SKILL = join(ROOT, "skills", "codex", "jev-tiers", "SKILL.md");
 
 export function installCodexSkill(home = homedir()) {
   const target = join(home, ".agents", "skills", "jev-router-explain", "SKILL.md");
   mkdirSync(dirname(target), { recursive: true });
   copyFileSync(EXPLAIN_SKILL, target);
+  const tiersDir = join(home, ".agents", "skills", "jev-tiers");
+  mkdirSync(tiersDir, { recursive: true });
+  writeFileSync(join(tiersDir, "SKILL.md"), readFileSync(TIERS_SKILL, "utf8").replaceAll("{{ROOT}}", ROOT));
   return target;
 }
 
@@ -76,7 +80,7 @@ export async function runCodex() {
   try {
     installCodexSkill();
   } catch (err) {
-    process.stderr.write(`[jev] could not install the Codex explanation skill: ${err.message}\n`);
+    process.stderr.write(`[jev] could not install the Codex skills: ${err.message}\n`);
   }
   const command = resolveCodex();
   if (!command) {
